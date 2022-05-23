@@ -117,8 +117,7 @@ fn main() {
     }
 }
 
-fn text_to_texture<'a, T>
-        (text: &str, texture_creator: &'a TextureCreator<T>) -> Texture<'a> {
+fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) -> Texture<'a> {
     let text_renderer = SurfaceRenderer::new(Color::WHITE, Color::BLACK);
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
