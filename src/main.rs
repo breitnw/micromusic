@@ -1,6 +1,7 @@
 //TODO: Remove the title bar and make the window itself draggable
 //TODO: This shit also breaks if at any point there's no song playing fsr
-//TODO: Put the song data into a struct instead of different variables
+//TODO: Better canvas scaling on regular/high dpi displays, see link in comment
+//TODO: Fix title clipping in on songs with short names
 
 use std::time::Duration;
 use std::sync::mpsc;
@@ -11,11 +12,13 @@ use osascript;
 use sdl2;
 use sdl2::pixels::Color;
 use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
+use sdl2::keyboard::{Keycode, TextInputUtil};
 use sdl2::rect::Rect;
 use sdl2::render::{TextureCreator, Texture};
 use sdl2_unifont::renderer::SurfaceRenderer;
- 
+
+use song_info::{RawSongData, SongData};
+
 fn main() {
     let (tx, rx) = mpsc::channel();
     let script = osascript::JavaScript::new("
@@ -27,8 +30,12 @@ fn main() {
     thread::spawn(move || {
         loop {
             let rv: Vec<String> = script.execute().unwrap();
-            let (name, artist, album) = (rv[0].to_owned(), rv[1].to_owned(), rv[2].to_owned());
-            tx.send((name, artist, album)).expect("Couldn't send song data through the channel");
+            let song_data = RawSongData::new(
+                rv[0].to_owned(),
+                rv[1].to_owned(),
+                rv[2].to_owned(),
+            );
+            tx.send(song_data).expect("Couldn't send song data through the channel");
             thread::sleep(Duration::from_secs(2));
         }
     });
@@ -60,7 +67,7 @@ fn main() {
     canvas.present();
     
     //let (mut name, mut artist, mut album) = (String::new(), String::new(), String::new());
-    let mut info_texture: Option<Texture> = None;
+    let mut song_data: Option<SongData> = None;
 
     let mut x: i32 = 0;
     const SPACING: i32 = 50;
@@ -76,13 +83,8 @@ fn main() {
             }
         }
         
-        if let Ok((na, ar, al)) = rx.try_recv() {
-            let (name, artist, album) = (na, ar, al);
-            let new_texture = text_to_texture(
-                &format!("{} - {} - {}", artist, name, album), 
-                &texture_creator,
-            );
-            info_texture = Some(new_texture);
+        if let Ok(raw_data) = rx.try_recv() {
+            song_data = Some(SongData::new(raw_data, &texture_creator));
         }
 
         //println!("{} - {}\n{}", artist, name, album);
@@ -90,8 +92,9 @@ fn main() {
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
 
-        if let Some(tex) = &info_texture {
-            let qry = tex.query();
+        if let Some(u_song_data) = &song_data {
+            let qry = u_song_data.texture_query();
+            let tex = u_song_data.texture();
 
             x -= 1;
             x %= qry.width as i32 + SPACING;
@@ -122,3 +125,48 @@ fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) ->
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
 }
+
+mod song_info {
+    use sdl2::render::Texture;
+    use sdl2::render::TextureCreator;
+    use sdl2::render::TextureQuery;
+
+    pub struct RawSongData {
+        name: String,
+        artist: String,
+        album: String,
+    }
+    
+    impl RawSongData {
+        pub fn new(name: String, artist: String, album: String) -> RawSongData {
+            RawSongData { name, artist, album}
+        }
+        pub fn to_string(&self) -> String {
+            format!("{} - {} - {}", self.artist, self.name, self.album)
+        }
+    }
+    
+    pub struct SongData<'a> {
+        data: RawSongData,
+        texture: Texture<'a>,
+        texture_query: TextureQuery,
+    }
+
+    impl<'a> SongData<'a> {
+        pub fn new<T: 'a>(data: RawSongData, texture_creator: &'a TextureCreator<T>) -> SongData<'a> {
+            let texture = super::text_to_texture(
+                &data.to_string(), 
+                &texture_creator,
+            );
+            SongData {
+                data,
+                texture_query: texture.query(),
+                texture,
+            }
+        }
+        pub fn data(&self) -> &RawSongData { return &self.data }
+        pub fn texture(&self) -> &Texture { return &self.texture }
+        pub fn texture_query(&self) -> &TextureQuery { return &self.texture_query }
+    }
+}
+
