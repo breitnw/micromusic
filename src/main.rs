@@ -12,61 +12,49 @@ use osascript;
 use sdl2;
 use sdl2::pixels::Color;
 use sdl2::event::Event;
-use sdl2::keyboard::{Keycode, TextInputUtil};
+use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 use sdl2::render::{TextureCreator, Texture};
 use sdl2_unifont::renderer::SurfaceRenderer;
 
+mod song_info;
 use song_info::{RawSongData, SongData};
 
+// PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
 fn main() {
+    // Set up a MPSC channel to send song data between threads
     let (tx, rx) = mpsc::channel();
-    let script = osascript::JavaScript::new("
-        var App = Application('Music');
-        var track = App.currentTrack
-        return [track.name(), track.artist(), track.album()];
-    ");
 
-    thread::spawn(move || {
-        loop {
-            let rv: Vec<String> = script.execute().unwrap();
-            let song_data = RawSongData::new(
-                rv[0].to_owned(),
-                rv[1].to_owned(),
-                rv[2].to_owned(),
-            );
-            tx.send(song_data).expect("Couldn't send song data through the channel");
-            thread::sleep(Duration::from_secs(2));
-        }
-    });
+    // Spawn a secondary thread 
+    start_osascript(tx);
 
+    // Initialize SDL
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
 
+    // Create the window and canvas
     let mut window = video_subsystem.window("music app", 298, 40)
         .position_centered()
         .allow_highdpi()
         .build()
         .unwrap();
     window.raise();
-
     let mut canvas = window
         .into_canvas()
         .present_vsync()
         .build()
         .unwrap();
 
+    // Get the canvas's texture creator
     let texture_creator = canvas.texture_creator();
 
-    //Find a better solution for this later - https://discourse.libsdl.org/t/high-dpi-mode/34411/2
+    // Find a better solution for this later - https://discourse.libsdl.org/t/high-dpi-mode/34411/2
     canvas.set_scale(2., 2.).unwrap();
-
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     canvas.present();
     
-    //let (mut name, mut artist, mut album) = (String::new(), String::new(), String::new());
     let mut song_data: Option<SongData> = None;
 
     let mut x: i32 = 0;
@@ -115,7 +103,6 @@ fn main() {
         }
 
         canvas.present();
-
         thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
     }
 }
@@ -126,47 +113,23 @@ fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) ->
     text_surface.as_texture(texture_creator).unwrap()
 }
 
-mod song_info {
-    use sdl2::render::Texture;
-    use sdl2::render::TextureCreator;
-    use sdl2::render::TextureQuery;
-
-    pub struct RawSongData {
-        name: String,
-        artist: String,
-        album: String,
-    }
-    
-    impl RawSongData {
-        pub fn new(name: String, artist: String, album: String) -> RawSongData {
-            RawSongData { name, artist, album}
-        }
-        pub fn to_string(&self) -> String {
-            format!("{} - {} - {}", self.artist, self.name, self.album)
-        }
-    }
-    
-    pub struct SongData<'a> {
-        data: RawSongData,
-        texture: Texture<'a>,
-        texture_query: TextureQuery,
-    }
-
-    impl<'a> SongData<'a> {
-        pub fn new<T: 'a>(data: RawSongData, texture_creator: &'a TextureCreator<T>) -> SongData<'a> {
-            let texture = super::text_to_texture(
-                &data.to_string(), 
-                &texture_creator,
+// SECONDARY THREAD: Periodically runs a JXA script to gather information on the current song
+fn start_osascript(tx: mpsc::Sender<RawSongData>) {
+    let script = osascript::JavaScript::new("
+        var App = Application('Music');
+        var track = App.currentTrack
+        return [track.name(), track.artist(), track.album()];
+    ");
+    thread::spawn(move || {
+        loop {
+            let rv: Vec<String> = script.execute().unwrap();
+            let song_data = RawSongData::new(
+                rv[0].to_owned(),
+                rv[1].to_owned(),
+                rv[2].to_owned(),
             );
-            SongData {
-                data,
-                texture_query: texture.query(),
-                texture,
-            }
+            tx.send(song_data).expect("Couldn't send song data through the channel");
+            thread::sleep(Duration::from_secs(2));
         }
-        pub fn data(&self) -> &RawSongData { return &self.data }
-        pub fn texture(&self) -> &Texture { return &self.texture }
-        pub fn texture_query(&self) -> &TextureQuery { return &self.texture_query }
-    }
+    });
 }
-
