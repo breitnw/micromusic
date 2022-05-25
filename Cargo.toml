@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 osascript = "0.3.0"
 sdl2-unifont = "1.0.2"
+hex = "0.4.3"
 
 [dependencies.sdl2]
 version = "0.34.5"

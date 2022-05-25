@@ -1,7 +1,14 @@
-//TODO: Remove the title bar and make the window itself draggable
-//TODO: This shit also breaks if at any point there's no song playing fsr
-//TODO: Better canvas scaling on regular/high dpi displays, see link in comment
-//TODO: Fix title clipping in on songs with short names
+
+// Front burner
+// TODO: Figure out how to handle errors that arise when no song is playing
+// TODO: Remove the title bar and make the window itself draggable
+// TODO: Better canvas scaling on regular/high dpi displays, see link in comment
+// TODO: Only re-render info text every frame, not album art
+
+// Back burner
+// TODO: Fix title clipping in on songs with short names
+// TODO: Ideally propagate errors when getting album artwork instead of unwrapping
+// TODO: Make window resizable
 
 use std::time::Duration;
 use std::sync::mpsc;
@@ -34,9 +41,14 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     // Create the window and canvas
-    let mut window = video_subsystem.window("music app", 298, 40)
+    const ARTWORK_SIZE: u32 = 300;
+    const INFO_AREA_HEIGHT: u32 = 40;
+    const INFO_PADDING: u32 = 10;
+
+    let mut window = video_subsystem.window("music app", ARTWORK_SIZE, ARTWORK_SIZE + INFO_AREA_HEIGHT)
         .position_centered()
         .allow_highdpi()
+        // .borderless()
         .build()
         .unwrap();
     window.raise();
@@ -75,30 +87,37 @@ fn main() {
             song_data = Some(SongData::new(raw_data, &texture_creator));
         }
 
-        //println!("{} - {}\n{}", artist, name, album);
-
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
 
         if let Some(u_song_data) = &song_data {
-            let qry = u_song_data.texture_query();
-            let tex = u_song_data.texture();
-
+            let info_tex = u_song_data.info_texture();
+            let art_tex = u_song_data.artwork_texture();
+            let info_qry = u_song_data.info_texture_query();
+            //let art_qry = u_song_data.artwork_texture_query();
+            
             x -= 1;
-            x %= qry.width as i32 + SPACING;
+            x %= info_qry.width as i32 + SPACING;
 
-            canvas.copy(tex, None, Rect::new(
-                x, 
-                10, 
-                qry.width, 
-                qry.height
+            canvas.copy(&art_tex, None, Rect::new(
+                0,
+                0,
+                ARTWORK_SIZE,
+                ARTWORK_SIZE,
             )).unwrap();
 
-            canvas.copy(tex, None, Rect::new(
-                x + qry.width as i32 + SPACING, 
-                10, 
-                qry.width, 
-                qry.height
+            canvas.copy(info_tex, None, Rect::new(
+                x, 
+                (ARTWORK_SIZE + INFO_PADDING) as i32, 
+                info_qry.width, 
+                info_qry.height
+            )).unwrap();
+
+            canvas.copy(info_tex, None, Rect::new(
+                x + info_qry.width as i32 + SPACING, 
+                (ARTWORK_SIZE + INFO_PADDING) as i32, 
+                info_qry.width, 
+                info_qry.height
             )).unwrap();
         }
 
@@ -118,18 +137,24 @@ fn start_osascript(tx: mpsc::Sender<RawSongData>) {
     let script = osascript::JavaScript::new("
         var App = Application('Music');
         var track = App.currentTrack
-        return [track.name(), track.artist(), track.album()];
+        var artwork = track.artworks[0];
+        return [track.name(), track.artist(), track.album(), artwork.rawData()];
     ");
     thread::spawn(move || {
         loop {
-            let rv: Vec<String> = script.execute().unwrap();
-            let song_data = RawSongData::new(
-                rv[0].to_owned(),
-                rv[1].to_owned(),
-                rv[2].to_owned(),
-            );
-            tx.send(song_data).expect("Couldn't send song data through the channel");
-            thread::sleep(Duration::from_secs(2));
+            if let Ok::<Vec<String>, _>(rv) = script.execute() {
+                let song_data = RawSongData::new(
+                    rv[0].to_owned(),
+                    rv[1].to_owned(),
+                    rv[2].to_owned(),
+                    rv[3].to_owned(),
+                );
+                tx.send(song_data).expect("Couldn't send song data through the channel");
+            } 
+            else {
+                println!("Error receiving data from Apple Music. You should probably handle this somehow.")
+            }
+            thread::sleep(Duration::from_secs(3));
         }
     });
 }
