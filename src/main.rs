@@ -172,9 +172,9 @@ fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) ->
 
 // SECONDARY THREAD: Periodically runs a JXA script to gather information on the current song
 fn start_osascript(tx: mpsc::Sender<Option<RawSongData>>) {
-    let script = osascript::JavaScript::new(
-        &std::fs::read_to_string("src/get_song_info.jxa").expect("Couldn't open JXA file")
-    );
+    const SONG_INFO_SCRIPT: &str = include_str!("song_info/get_song_info.jxa");
+    let script = osascript::JavaScript::new(SONG_INFO_SCRIPT);
+
     thread::spawn(move || {
         loop {
             if let Ok::<Vec<String>, _>(rv) = script.execute() {
