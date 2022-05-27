@@ -9,7 +9,6 @@
 // TODO: Fix title clipping in on songs with short names
 // TODO: Ideally propagate errors when getting album artwork instead of unwrapping
 // TODO: Make window resizable
-// TODO: Fix border colors and janky blend mode behavior
 // TODO: Dynamically update the draggable areas by syncing with hit_test.c
 
 use std::time::Duration;
@@ -31,6 +30,7 @@ use std::ffi::c_void;
 
 mod song_info;
 use song_info::{RawSongData, SongData};
+
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
 fn main() {
@@ -107,8 +107,11 @@ fn main() {
             }
         }
         
-        if let Ok(raw_data) = rx.try_recv() {
-            song_data = Some(SongData::new(raw_data, &texture_creator));
+        if let Ok(wrapped_data) = rx.try_recv() {
+            match wrapped_data {
+                Some(raw_data) => { song_data = Some(SongData::new(raw_data, &texture_creator)); }
+                None => { song_data = None }
+            }
         }
 
         canvas.set_draw_color(Color::BLACK);
@@ -147,10 +150,10 @@ fn main() {
         }
         
         //Draw a border
-        canvas.set_draw_color(Color::RGBA(50, 50, 50, 50));
-        canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
         canvas.set_blend_mode(BlendMode::Blend);
-        canvas.set_draw_color(Color::RGBA(150, 150, 150, 100));
+        canvas.set_draw_color(Color::RGBA(0, 0, 0, 150));
+        canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
+        canvas.set_draw_color(Color::RGBA(255, 255, 255, 50));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
         //Present the canvas
@@ -159,14 +162,16 @@ fn main() {
     }
 }
 
+
 fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) -> Texture<'a> {
     let text_renderer = SurfaceRenderer::new(Color::WHITE, Color::BLACK);
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
 }
 
+
 // SECONDARY THREAD: Periodically runs a JXA script to gather information on the current song
-fn start_osascript(tx: mpsc::Sender<RawSongData>) {
+fn start_osascript(tx: mpsc::Sender<Option<RawSongData>>) {
     let script = osascript::JavaScript::new("
         var App = Application('Music');
         var track = App.currentTrack
@@ -182,10 +187,11 @@ fn start_osascript(tx: mpsc::Sender<RawSongData>) {
                     rv[2].to_owned(),
                     rv[3].to_owned(),
                 );
-                tx.send(song_data).expect("Couldn't send song data through the channel");
+                tx.send(Some(song_data)).expect("Couldn't send song data through the channel");
             } 
             else {
-                println!("Error receiving data from Apple Music. You should probably handle this somehow.")
+                tx.send(None).expect("Couldn't send song data through the channel");
+                println!("Error receiving data from Apple Music.")
             }
             thread::sleep(Duration::from_secs(3));
         }
