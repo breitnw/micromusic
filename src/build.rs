@@ -1,6 +1,6 @@
 fn main() {
     cc::Build::new()
-        .file("src/hittest.c")
+        .file("src/hit_test.c")
         // .define("FOO", Some("bar"))
-        .compile("hittest");
+        .compile("hit_test");
 }

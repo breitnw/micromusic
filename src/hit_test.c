@@ -11,6 +11,7 @@ const SDL_Rect drag_areas[] = {
     // { 400, 90, 100, 100 }
 };
 
+
 // static int screenSize = 0
 
 static const SDL_Rect *areas = drag_areas;
