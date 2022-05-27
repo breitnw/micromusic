@@ -1,5 +1,3 @@
-use std::io::Error;
-
 use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 use sdl2::render::TextureQuery;

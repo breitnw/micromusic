@@ -1,14 +1,15 @@
 
 // Front burner
 // TODO: Figure out how to handle errors that arise when no song is playing
-// TODO: Remove the title bar and make the window itself draggable
 // TODO: Better canvas scaling on regular/high dpi displays, see link in comment
 // TODO: Only re-render info text every frame, not album art
+// TODO: Potentially save on resources by reducing framerate
 
 // Back burner
 // TODO: Fix title clipping in on songs with short names
 // TODO: Ideally propagate errors when getting album artwork instead of unwrapping
 // TODO: Make window resizable
+// TODO: Fix janky blend mode behavior
 
 use std::time::Duration;
 use std::sync::mpsc;
@@ -21,8 +22,11 @@ use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
-use sdl2::render::{TextureCreator, Texture};
+use sdl2::render::{ TextureCreator, Texture, BlendMode };
 use sdl2_unifont::renderer::SurfaceRenderer;
+
+use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult};
+use std::ffi::c_void;
 
 mod song_info;
 use song_info::{RawSongData, SongData};
@@ -41,17 +45,36 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     // Create the window and canvas
-    const ARTWORK_SIZE: u32 = 300;
+    const ARTWORK_SIZE: u32 = 200;
     const INFO_AREA_HEIGHT: u32 = 40;
     const INFO_PADDING: u32 = 10;
 
-    let mut window = video_subsystem.window("music app", ARTWORK_SIZE, ARTWORK_SIZE + INFO_AREA_HEIGHT)
+    const WINDOW_WIDTH: u32 = ARTWORK_SIZE;
+    const WINDOW_HEIGHT: u32 = ARTWORK_SIZE + INFO_AREA_HEIGHT;
+
+    //Create the window
+    let mut window = video_subsystem.window("music app", WINDOW_WIDTH, WINDOW_HEIGHT)
         .position_centered()
         .allow_highdpi()
-        // .borderless()
+        .borderless()
         .build()
         .unwrap();
     window.raise();
+
+    // Make the window draggable
+    extern { 
+        pub fn hitTest(window: *mut SDL_Window, pt: *const SDL_Point, data: *mut c_void) -> SDL_HitTestResult;
+    }
+    let wrapped_callback: SDL_HitTest = Some(hitTest);
+    unsafe {
+        SDL_SetWindowHitTest(
+            window.raw(),
+            wrapped_callback,
+            1 as *mut sdl2::libc::c_void,
+        );
+    }
+
+    //Create a canvas from the window
     let mut canvas = window
         .into_canvas()
         .present_vsync()
@@ -88,6 +111,7 @@ fn main() {
         }
 
         canvas.set_draw_color(Color::BLACK);
+        canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
         if let Some(u_song_data) = &song_data {
@@ -120,7 +144,15 @@ fn main() {
                 info_qry.height
             )).unwrap();
         }
+        
+        //Draw a border
+        canvas.set_draw_color(Color::RGBA(50, 50, 50, 50));
+        canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
+        canvas.set_blend_mode(BlendMode::Blend);
+        canvas.set_draw_color(Color::RGBA(150, 150, 150, 100));
+        canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
+        //Present the canvas
         canvas.present();
         thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
     }
