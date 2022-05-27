@@ -9,7 +9,8 @@
 // TODO: Fix title clipping in on songs with short names
 // TODO: Ideally propagate errors when getting album artwork instead of unwrapping
 // TODO: Make window resizable
-// TODO: Fix janky blend mode behavior
+// TODO: Fix border colors and janky blend mode behavior
+// TODO: Dynamically update the draggable areas by syncing with hit_test.c
 
 use std::time::Duration;
 use std::sync::mpsc;
