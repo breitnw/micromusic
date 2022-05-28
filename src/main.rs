@@ -1,9 +1,7 @@
 
 // Front burner
-// TODO: Figure out how to handle errors that arise when no song is playing
-// TODO: Better canvas scaling on regular/high dpi displays, see link in comment
+// TODO: Add screen for when nothing is playing
 // TODO: Only re-render info text every frame, not album art
-// TODO: Potentially save on resources by reducing framerate
 
 // Back burner
 // TODO: Fix title clipping in on songs with short names
@@ -19,10 +17,10 @@ use osascript;
 
 use sdl2;
 use sdl2::pixels::Color;
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
-use sdl2::render::{ TextureCreator, Texture, BlendMode };
+use sdl2::render::{ TextureCreator, Texture, BlendMode, Canvas, RenderTarget };
 use sdl2_unifont::renderer::SurfaceRenderer;
 
 use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult};
@@ -45,7 +43,7 @@ fn main() {
     let video_subsystem = sdl_context.video().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    // Create the window and canvas
+    // Sizes for the window and canvas
     const ARTWORK_SIZE: u32 = 200;
     const INFO_AREA_HEIGHT: u32 = 40;
     const INFO_PADDING: u32 = 10;
@@ -85,16 +83,15 @@ fn main() {
     // Get the canvas's texture creator
     let texture_creator = canvas.texture_creator();
 
-    // Find a better solution for this later - https://discourse.libsdl.org/t/high-dpi-mode/34411/2
-    canvas.set_scale(2., 2.).unwrap();
     canvas.set_draw_color(Color::RGB(0, 0, 0));
+    update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
     canvas.clear();
     canvas.present();
     
     let mut song_data: Option<SongData> = None;
 
-    let mut x: i32 = 0;
-    const SPACING: i32 = 50;
+    let mut info_scroll_pos: i32 = 0;
+    const INFO_SPACING: i32 = 50;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -103,6 +100,12 @@ fn main() {
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running;
                 },
+                Event::Window { win_event, .. } => {
+                    match win_event {
+                        WindowEvent::Moved {..} => { update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) },
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         }
@@ -124,8 +127,8 @@ fn main() {
             let info_qry = u_song_data.info_texture_query();
             //let art_qry = u_song_data.artwork_texture_query();
             
-            x -= 1;
-            x %= info_qry.width as i32 + SPACING;
+            info_scroll_pos -= 1;
+            info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
 
             canvas.copy(&art_tex, None, Rect::new(
                 0,
@@ -135,14 +138,14 @@ fn main() {
             )).unwrap();
 
             canvas.copy(info_tex, None, Rect::new(
-                x, 
+                info_scroll_pos, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
                 info_qry.width, 
                 info_qry.height
             )).unwrap();
 
             canvas.copy(info_tex, None, Rect::new(
-                x + info_qry.width as i32 + SPACING, 
+                info_scroll_pos + info_qry.width as i32 + INFO_SPACING, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
                 info_qry.width, 
                 info_qry.height
@@ -150,16 +153,24 @@ fn main() {
         }
         
         //Draw a border
-        canvas.set_blend_mode(BlendMode::Blend);
-        canvas.set_draw_color(Color::RGBA(0, 0, 0, 150));
+        canvas.set_blend_mode(BlendMode::Mod);
+        canvas.set_draw_color(Color::RGB(200, 200, 200));
         canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
-        canvas.set_draw_color(Color::RGBA(255, 255, 255, 50));
+        canvas.set_blend_mode(BlendMode::Add);
+        canvas.set_draw_color(Color::RGB(50, 50, 50));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
         //Present the canvas
         canvas.present();
         thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
     }
+}
+
+// Scale the window so it appears the same on high-DPI displays, works fine for now 
+// Based on https://discourse.libsdl.org/t/high-dpi-mode/34411/2
+fn update_canvas_scale<T: RenderTarget>(canvas: &mut Canvas<T>, window_width: u32, window_height: u32) {
+    let (w, h) = canvas.output_size().unwrap();
+    canvas.set_scale((w / window_width) as f32, (h / window_height) as f32).unwrap();
 }
 
 
