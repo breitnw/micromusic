@@ -8,6 +8,7 @@
 // TODO: Ideally propagate errors when getting album artwork instead of unwrapping
 // TODO: Make window resizable
 // TODO: Dynamically update the draggable areas by syncing with hit_test.c
+// TODO: Add anti aliasing
 
 use std::time::Duration;
 use std::sync::mpsc;
@@ -23,7 +24,7 @@ use sdl2::rect::Rect;
 use sdl2::render::{ TextureCreator, Texture, BlendMode, Canvas, RenderTarget };
 use sdl2_unifont::renderer::SurfaceRenderer;
 
-use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult};
+use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult, SDL_AddHintCallback};
 use std::ffi::c_void;
 
 mod song_info;
@@ -157,7 +158,7 @@ fn main() {
         canvas.set_draw_color(Color::RGB(200, 200, 200));
         canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
         canvas.set_blend_mode(BlendMode::Add);
-        canvas.set_draw_color(Color::RGB(50, 50, 50));
+        canvas.set_draw_color(Color::RGB(40, 40, 40));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
         //Present the canvas

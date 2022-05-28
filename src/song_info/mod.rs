@@ -45,7 +45,7 @@ impl<'a> SongData<'a> {
         let bytes = Vec::from_hex(hex_data).expect("Couldn't convert pixel data to bytes");
         let rw = RWops::from_bytes(&bytes).unwrap();
         let artwork_texture = texture_creator.create_texture_from_surface(
-            rw.load_jpg().expect("Couldn't load JPG image from bytes")
+            rw.load().expect("Couldn't load image from bytes")
         ).unwrap();
 
         SongData {
