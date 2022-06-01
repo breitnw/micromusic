@@ -1,0 +1,16 @@
+//JXA script to receive data from Apple Music
+
+var app = Application('Music');
+var track = app.currentTrack;
+var artwork = track.artworks[0];
+
+return {
+    song_name: track.name(),
+    song_artist: track.artist(),
+    song_album: track.album(),
+    song_length: track.finish(),
+    artwork_data: artwork.rawData(),
+
+    player_pos: app.playerPosition(),
+    player_state: app.playerState(),
+}

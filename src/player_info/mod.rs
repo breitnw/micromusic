@@ -2,22 +2,25 @@ use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 use sdl2::render::TextureQuery;
 
+use serde::Deserialize;
+
 use hex::FromHex;
 use sdl2::rwops::RWops;
 use sdl2::image::ImageRWops;
 
-pub struct RawSongData {
-    name: String,
-    artist: String,
-    album: String,
-    artwork_data: String
+
+#[derive(Deserialize, Clone)]
+pub struct RawPlayerData {
+    pub song_name: String,
+    pub song_artist: String,
+    pub song_album: String,
+    pub song_length: f64,
+    pub artwork_data: String,
+
+    pub player_pos: f64,
+    pub player_state: String, //"stopped"/‌"playing"/‌"paused"/‌"fast forwarding"/‌"rewinding"
 }
 
-impl RawSongData {
-    pub fn new(name: String, artist: String, album: String, artwork_data: String) -> RawSongData {
-        RawSongData { name, artist, album, artwork_data }
-    }
-}
 
 pub struct SongData<'a> {
     name: String,
@@ -30,10 +33,10 @@ pub struct SongData<'a> {
 }
 
 impl<'a> SongData<'a> {
-    pub fn new<T: 'a>(data: RawSongData, texture_creator: &'a TextureCreator<T>) -> SongData<'a> {
+    pub fn new<T: 'a>(data: RawPlayerData, texture_creator: &'a TextureCreator<T>) -> SongData<'a> {
         //Create a texture from the album info
         let info_texture = super::text_to_texture(
-            &format!("{} - {} - {}", data.artist, data.name, data.album),
+            &format!("{} - {} - {}", data.song_artist, data.song_name, data.song_album),
             &texture_creator,
         );
 
@@ -49,9 +52,9 @@ impl<'a> SongData<'a> {
         ).unwrap();
 
         SongData {
-            name: data.name,
-            artist: data.artist,
-            album: data.album,
+            name: data.song_name,
+            artist: data.song_artist,
+            album: data.song_album,
             info_texture_query: info_texture.query(),
             info_texture,
             artwork_texture_query: artwork_texture.query(),

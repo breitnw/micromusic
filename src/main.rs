@@ -2,6 +2,7 @@
 // Front burner
 // TODO: Add screen for when nothing is playing
 // TODO: Only re-render info text every frame, not album art
+// TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
 
 // Back burner
 // TODO: Fix title clipping in on songs with short names
@@ -9,6 +10,8 @@
 // TODO: Make window resizable
 // TODO: Dynamically update the draggable areas by syncing with hit_test.c
 // TODO: Add anti aliasing
+// TODO: fix occasional flickering (this should fix itself if album art isn't re-rendered)
+// TODO: Make a third now playing struct for basic song data
 
 use std::time::Duration;
 use std::sync::mpsc;
@@ -27,13 +30,13 @@ use sdl2_unifont::renderer::SurfaceRenderer;
 use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult, SDL_AddHintCallback};
 use std::ffi::c_void;
 
-mod song_info;
-use song_info::{RawSongData, SongData};
+mod player_info;
+use player_info::{RawPlayerData, SongData};
 
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
 fn main() {
-    // Set up a MPSC channel to send song data between threads
+    // Set up a MPSC channel to send player data between threads
     let (tx, rx) = mpsc::channel();
 
     // Spawn a secondary thread 
@@ -90,6 +93,7 @@ fn main() {
     canvas.present();
     
     let mut song_data: Option<SongData> = None;
+    let mut player_data: Option<RawPlayerData> = None;
 
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
@@ -111,9 +115,13 @@ fn main() {
             }
         }
         
-        if let Ok(wrapped_data) = rx.try_recv() {
-            match wrapped_data {
-                Some(raw_data) => { song_data = Some(SongData::new(raw_data, &texture_creator)); }
+        if let Ok(pl_data) = rx.try_recv() {
+            // TODO: maybe borrow player_data in song_data instead of cloning here
+            player_data = pl_data.clone();
+            match pl_data {
+                Some(pl_data_unwrapped) => { 
+                    song_data = Some(SongData::new(pl_data_unwrapped, &texture_creator)); 
+                }
                 None => { song_data = None }
             }
         }
@@ -128,7 +136,7 @@ fn main() {
             let info_qry = u_song_data.info_texture_query();
             //let art_qry = u_song_data.artwork_texture_query();
             
-            info_scroll_pos -= 1;
+            info_scroll_pos -= 1; 
             info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
 
             canvas.copy(&art_tex, None, Rect::new(
@@ -158,7 +166,7 @@ fn main() {
         canvas.set_draw_color(Color::RGB(200, 200, 200));
         canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
         canvas.set_blend_mode(BlendMode::Add);
-        canvas.set_draw_color(Color::RGB(40, 40, 40));
+        canvas.set_draw_color(Color::RGB(30, 30, 30));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
         //Present the canvas
@@ -183,26 +191,24 @@ fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) ->
 
 
 // SECONDARY THREAD: Periodically runs a JXA script to gather information on the current song
-fn start_osascript(tx: mpsc::Sender<Option<RawSongData>>) {
-    const SONG_INFO_SCRIPT: &str = include_str!("song_info/get_song_info.jxa");
-    let script = osascript::JavaScript::new(SONG_INFO_SCRIPT);
+fn start_osascript(tx: mpsc::Sender<Option<RawPlayerData>>) {
+    const PLAYER_INFO_SCRIPT: &str = include_str!("player_info/get_player_data.jxa");
+    let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
 
     thread::spawn(move || {
+        let mut time_remaining = -1.;
         loop {
-            if let Ok::<Vec<String>, _>(rv) = script.execute() {
-                let song_data = RawSongData::new(
-                    rv[0].to_owned(),
-                    rv[1].to_owned(),
-                    rv[2].to_owned(),
-                    rv[3].to_owned(),
-                );
-                tx.send(Some(song_data)).expect("Couldn't send song data through the channel");
+            // let err_test: RawSongData = script.execute().unwrap();
+            if let Ok::<RawPlayerData, _>(player_data) = script.execute() {
+                time_remaining = player_data.song_length - player_data.player_pos;
+                tx.send(Some(player_data)).expect("Couldn't send player data through the channel");
             } 
             else {
-                tx.send(None).expect("Couldn't send song data through the channel");
+                tx.send(None).expect("Couldn't send player data through the channel");
                 println!("Error receiving data from Apple Music.")
             }
-            thread::sleep(Duration::from_secs(3));
+            // If the song is almost over, don't sleep the full duration so the info can be updated immediately after it ends
+            thread::sleep(Duration::from_secs_f64(time_remaining.min(3.)));
         }
     });
 }
