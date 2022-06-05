@@ -207,8 +207,10 @@ fn main() {
                 canvas.set_blend_mode(BlendMode::Add);
                 canvas.set_draw_color(Color::RGB(100, 100, 100));
 
-                // TODO: Don't add time since last snapshot if paused
-                let percent_elapsed = (u_player_data.player_pos + last_snapshot_time.elapsed().as_secs_f64()) / u_player_data.song_length;
+                let percent_elapsed = (u_player_data.player_pos 
+                    + if u_player_data.player_state == "playing" { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
+                    / u_player_data.song_length;
+
                 canvas.draw_line(
                     Point::new(0, ARTWORK_SIZE as i32 - 1), 
                     Point::new(
