@@ -1,8 +1,18 @@
 
 // Front burner
+// TODO: Fix flickering when dragging (try updating mouse/window pos at end of loop instead of beginning)
 // TODO: Add screen for when nothing is playing
 // TODO: Only re-render info text every frame, not album art
 // TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
+// TODO: Use a smaller drag icon instead of making the whole window draggable (⠿, maybe sideways)
+// TODO: Convert player state to an enum
+
+
+// Crashes
+// TODO: fix crash if music is not playing when program starts
+// TODO: Fix crash when there's an emoji in song title
+// TODO: Fix "thread '<unnamed>' panicked at 'can not convert float seconds to Duration: value is negative', /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/time.rs:744:23"
+
 
 // Back burner
 // TODO: Fix title clipping in on songs with short names
@@ -11,27 +21,28 @@
 // TODO: Dynamically update the draggable areas by syncing with hit_test.c
 // TODO: Add anti aliasing
 // TODO: fix occasional flickering (this should fix itself if album art isn't re-rendered)
-// TODO: Make a third now playing struct for basic song data
+// TODO: Make a third now playing struct for basic song data, embed it in the PlayerData struct, and figure out how to deserialize it
 
-use std::time::Duration;
+
+use std::time::{Duration, Instant};
 use std::sync::mpsc;
 use std::thread;
 
-use osascript;
-
 use sdl2;
+use sdl2::libc::c_int;
 use sdl2::pixels::Color;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
-use sdl2::rect::Rect;
+use sdl2::rect::{Rect, Point};
 use sdl2::render::{ TextureCreator, Texture, BlendMode, Canvas, RenderTarget };
 use sdl2_unifont::renderer::SurfaceRenderer;
 
-use sdl2::sys::{SDL_SetWindowHitTest, SDL_HitTest, SDL_Window, SDL_Point, SDL_HitTestResult, SDL_AddHintCallback};
+use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_HitTestResult};
 use std::ffi::c_void;
 
-mod player_info;
-use player_info::{RawPlayerData, SongData};
+mod player_data;
+use player_data::{PlayerData, SongData};
+mod osascript_requests;
 
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
@@ -39,8 +50,8 @@ fn main() {
     // Set up a MPSC channel to send player data between threads
     let (tx, rx) = mpsc::channel();
 
-    // Spawn a secondary thread 
-    start_osascript(tx);
+    // Spawn a secondary thread to periodically gather information on the current song and send it to the main thread
+    osascript_requests::send_player_data_loop(tx.clone());
 
     // Initialize SDL
     let sdl_context = sdl2::init().unwrap();
@@ -54,6 +65,7 @@ fn main() {
 
     const WINDOW_WIDTH: u32 = ARTWORK_SIZE;
     const WINDOW_HEIGHT: u32 = ARTWORK_SIZE + INFO_AREA_HEIGHT;
+    let window_rect = Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     //Create the window
     let mut window = video_subsystem.window("music app", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -68,11 +80,10 @@ fn main() {
     extern { 
         pub fn hitTest(window: *mut SDL_Window, pt: *const SDL_Point, data: *mut c_void) -> SDL_HitTestResult;
     }
-    let wrapped_callback: SDL_HitTest = Some(hitTest);
     unsafe {
         SDL_SetWindowHitTest(
             window.raw(),
-            wrapped_callback,
+            Some(hitTest),
             1 as *mut sdl2::libc::c_void,
         );
     }
@@ -91,53 +102,79 @@ fn main() {
     update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
     canvas.clear();
     canvas.present();
-    
-    let mut song_data: Option<SongData> = None;
-    let mut player_data: Option<RawPlayerData> = None;
 
+    // State variables for the rendering loop
+    let mut player_and_song_data: Option<(SongData, PlayerData)> = None;
+    let mut last_snapshot_time = Instant::now();
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
 
+
+    // This code will run every frame
     'running: loop {
+        // Input
+        let window_pos = {
+            let (x, y) = canvas.window().position();
+            Point::new(x, y)
+        };
+        let mouse_pos_absolute = unsafe {
+            let (mut x, mut y): (c_int, c_int) = (0, 0);
+            sdl2::sys::SDL_GetGlobalMouseState(&mut x, &mut y); 
+            Point::new(x, y)
+        };
+        let mouse_pos_relative = mouse_pos_absolute - window_pos;
+        let window_input_focus = &canvas.window().window_flags() & 512 == 512; // input focus: 512, mouse focus: 1024
+        
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} |
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running;
                 },
+                Event::MouseButtonDown {x, y, which, .. } => {
+                    if which == 0 { 
+                        osascript_requests::playpause(tx.clone()); 
+                    }
+                }
                 Event::Window { win_event, .. } => {
                     match win_event {
-                        WindowEvent::Moved {..} => { update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) },
+                        WindowEvent::Moved {..} => {
+                            // Update the canvas scale in case the user drags the window to a different monitor
+                            update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
+                        },
                         _ => {}
                     }
+                    // TODO: Add event to update canvas rect / dimension vars when canvas is resized
                 }
                 _ => {}
             }
         }
         
         if let Ok(pl_data) = rx.try_recv() {
-            // TODO: maybe borrow player_data in song_data instead of cloning here
-            player_data = pl_data.clone();
-            match pl_data {
+            player_and_song_data = match pl_data {
                 Some(pl_data_unwrapped) => { 
-                    song_data = Some(SongData::new(pl_data_unwrapped, &texture_creator)); 
+                    // Since it includes the full image data, this clone is probably pretty significant and may be causing the lag
+                    Some((SongData::new(&pl_data_unwrapped, &texture_creator).unwrap(), pl_data_unwrapped))
                 }
-                None => { song_data = None }
-            }
+                None => None
+            };
+            last_snapshot_time = Instant::now();
         }
 
         canvas.set_draw_color(Color::BLACK);
         canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
-        if let Some(u_song_data) = &song_data {
+        if let Some((u_song_data, u_player_data)) = &player_and_song_data {
             let info_tex = u_song_data.info_texture();
             let art_tex = u_song_data.artwork_texture();
             let info_qry = u_song_data.info_texture_query();
             //let art_qry = u_song_data.artwork_texture_query();
             
-            info_scroll_pos -= 1; 
-            info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+            if u_player_data.player_state == "playing" {
+                info_scroll_pos -= 1; 
+                info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+            }
 
             canvas.copy(&art_tex, None, Rect::new(
                 0,
@@ -159,6 +196,27 @@ fn main() {
                 info_qry.width, 
                 info_qry.height
             )).unwrap();
+
+            if window_input_focus && window_rect.contains_point(mouse_pos_relative) {
+                // Darken the cover art
+                canvas.set_blend_mode(BlendMode::Mod);
+                canvas.set_draw_color(Color::RGB( 150, 150, 150));
+                canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
+
+                // Draw a progress bar
+                canvas.set_blend_mode(BlendMode::Add);
+                canvas.set_draw_color(Color::RGB(100, 100, 100));
+
+                // TODO: Don't add time since last snapshot if paused
+                let percent_elapsed = (u_player_data.player_pos + last_snapshot_time.elapsed().as_secs_f64()) / u_player_data.song_length;
+                canvas.draw_line(
+                    Point::new(0, ARTWORK_SIZE as i32 - 1), 
+                    Point::new(
+                        (ARTWORK_SIZE as f64 * percent_elapsed) as i32, 
+                        ARTWORK_SIZE as i32 - 1
+                    )
+                ).unwrap();
+            }
         }
         
         //Draw a border
@@ -168,6 +226,7 @@ fn main() {
         canvas.set_blend_mode(BlendMode::Add);
         canvas.set_draw_color(Color::RGB(30, 30, 30));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
+
 
         //Present the canvas
         canvas.present();
@@ -187,28 +246,4 @@ fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) ->
     let text_renderer = SurfaceRenderer::new(Color::WHITE, Color::BLACK);
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
-}
-
-
-// SECONDARY THREAD: Periodically runs a JXA script to gather information on the current song
-fn start_osascript(tx: mpsc::Sender<Option<RawPlayerData>>) {
-    const PLAYER_INFO_SCRIPT: &str = include_str!("player_info/get_player_data.jxa");
-    let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
-
-    thread::spawn(move || {
-        let mut time_remaining = -1.;
-        loop {
-            // let err_test: RawSongData = script.execute().unwrap();
-            if let Ok::<RawPlayerData, _>(player_data) = script.execute() {
-                time_remaining = player_data.song_length - player_data.player_pos;
-                tx.send(Some(player_data)).expect("Couldn't send player data through the channel");
-            } 
-            else {
-                tx.send(None).expect("Couldn't send player data through the channel");
-                println!("Error receiving data from Apple Music.")
-            }
-            // If the song is almost over, don't sleep the full duration so the info can be updated immediately after it ends
-            thread::sleep(Duration::from_secs_f64(time_remaining.min(3.)));
-        }
-    });
 }
