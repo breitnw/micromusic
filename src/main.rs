@@ -1,6 +1,5 @@
 
 // Front burner
-// TODO: Fix flickering when dragging (try updating mouse/window pos at end of loop instead of beginning)
 // TODO: Add screen for when nothing is playing
 // TODO: Only re-render info text every frame, not album art
 // TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
@@ -109,6 +108,9 @@ fn main() {
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
 
+    // A timer used to tell whether the window is currently being moved, decremented every frame
+    // Necessary because WindowEvent::Moved is only sent every three frames
+    let mut move_detection_timer = 0;
 
     // This code will run every frame
     'running: loop {
@@ -124,6 +126,9 @@ fn main() {
         };
         let mouse_pos_relative = mouse_pos_absolute - window_pos;
         let window_input_focus = &canvas.window().window_flags() & 512 == 512; // input focus: 512, mouse focus: 1024
+
+        // Reduce the move detection timer by 1
+        move_detection_timer = 0.max(move_detection_timer - 1);
         
         for event in event_pump.poll_iter() {
             match event {
@@ -139,6 +144,7 @@ fn main() {
                 Event::Window { win_event, .. } => {
                     match win_event {
                         WindowEvent::Moved {..} => {
+                            move_detection_timer = 3;
                             // Update the canvas scale in case the user drags the window to a different monitor
                             update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
                         },
@@ -197,7 +203,7 @@ fn main() {
                 info_qry.height
             )).unwrap();
 
-            if window_input_focus && window_rect.contains_point(mouse_pos_relative) {
+            if window_input_focus && window_rect.contains_point(mouse_pos_relative) || move_detection_timer > 0 {
                 // Darken the cover art
                 canvas.set_blend_mode(BlendMode::Mod);
                 canvas.set_draw_color(Color::RGB( 150, 150, 150));
