@@ -1,25 +1,26 @@
 
-// Front burner
+// FRONT BURNER
 // TODO: Add screen for when nothing is playing
 // TODO: Only re-render info text every frame, not album art
-// TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
 // TODO: Use a smaller drag icon instead of making the whole window draggable (⠿, maybe sideways)
 // TODO: Convert player state to an enum
+// TODO: Buttons for skipping forward/back, play/pause, favoriting songs
+// TODO: Minimize and close buttons
 
-
-// Crashes
-// TODO: fix crash if music is not playing when program starts
+// CRASHES
+// TODO: Probably panic the whole program when the secondary thread panics
 // TODO: Fix crash when there's an emoji in song title
-// TODO: Fix "thread '<unnamed>' panicked at 'can not convert float seconds to Duration: value is negative', /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/time.rs:744:23"
 
+// FIXES
+// TODO: Flickering when drag begins (use hit test event instead of window moved?) and with trackpad
+// TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
+// TODO: Title clipping in on songs with short names
+// TODO: fix occasional flickering (this should fix itself if album art isn't re-rendered)
 
-// Back burner
-// TODO: Fix title clipping in on songs with short names
-// TODO: Ideally propagate errors when getting album artwork instead of unwrapping
+// BACK BURNER
 // TODO: Make window resizable
 // TODO: Dynamically update the draggable areas by syncing with hit_test.c
 // TODO: Add anti aliasing
-// TODO: fix occasional flickering (this should fix itself if album art isn't re-rendered)
 // TODO: Make a third now playing struct for basic song data, embed it in the PlayerData struct, and figure out how to deserialize it
 
 
@@ -42,6 +43,7 @@ use std::ffi::c_void;
 mod player_data;
 use player_data::{PlayerData, SongData};
 mod osascript_requests;
+use osascript_requests::JXACommand;
 
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
@@ -138,7 +140,13 @@ fn main() {
                 },
                 Event::MouseButtonDown {x, y, which, .. } => {
                     if which == 0 { 
-                        osascript_requests::playpause(tx.clone()); 
+                        // TODO: Make buttons for this instead
+                        let command = {
+                            if x < (WINDOW_WIDTH / 3) as i32 { JXACommand::BackTrack }
+                            else if x < (WINDOW_WIDTH * 2 / 3) as i32 { JXACommand::PlayPause }
+                            else { JXACommand::NextTrack }
+                        };
+                        osascript_requests::run_command(command, tx.clone()); 
                     }
                 }
                 Event::Window { win_event, .. } => {

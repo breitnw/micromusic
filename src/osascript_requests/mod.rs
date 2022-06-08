@@ -36,7 +36,7 @@ pub fn send_player_data_async(tx: mpsc::Sender<Option<PlayerData>>) {
 /// Periodically runs a JXA script to gather information on the current song and send it to the main thread.
 pub fn send_player_data_loop(tx: mpsc::Sender<Option<PlayerData>>) {
     thread::spawn(move || {
-        let mut time_remaining = -1.;
+        let mut time_remaining = 3.;
         loop {
             if let Some(player_data) = send_player_data(tx.clone()) {
                 time_remaining = player_data.song_length - player_data.player_pos;
@@ -47,13 +47,32 @@ pub fn send_player_data_loop(tx: mpsc::Sender<Option<PlayerData>>) {
     });
 }
 
+#[allow(dead_code)]
+pub enum JXACommand {
+    PlayPause,
+    NextTrack,
+    PreviousTrack,
+    BackTrack,
+}
 
-/// Runs the "playpause() JXA command
+impl JXACommand {
+    fn as_str(&self) -> &'static str {
+        match self {
+            JXACommand::PlayPause => "Application('Music').playpause()",
+            JXACommand::NextTrack => "Application('Music').nextTrack()",
+            JXACommand::PreviousTrack => "Application('Music').previousTrack()",
+            JXACommand::BackTrack => "Application('Music').backTrack()"
+        }
+    }
+}
+
+
+/// Can run different JXA commands depending on the "command" parameter
 /// * `tx` - An MPSC sender to optionally update the player data on the main thread after the command has completed. Set it to None to disable this behavior.
-pub fn playpause<T>(tx: T)
+pub fn run_command<T>(command: JXACommand, tx: T)
 where T: Into<Option<mpsc::Sender<Option<PlayerData>>>> {
     let tx = tx.into();
-    let script = osascript::JavaScript::new("Application('Music').playpause()");
+    let script = osascript::JavaScript::new(command.as_str());
     thread::spawn( move || {
         let _: () = script.execute().unwrap();
         if let Some(tx) = tx {
