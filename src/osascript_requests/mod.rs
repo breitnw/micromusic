@@ -2,14 +2,15 @@
 use osascript;
 
 use std::time::Duration;
-use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::thread;
 
 use crate::player_data::PlayerData;
 
+type PlayerDataSender = Sender<Option<PlayerData>>;
 
 /// Gathers information on the current song and sends it to the main thread once complete.
-fn send_player_data(tx: mpsc::Sender<Option<PlayerData>>) -> Option<PlayerData> {
+fn send_player_data(tx: PlayerDataSender) -> Option<PlayerData> {
     // let err_test: RawSongData = script.execute().unwrap();
     const PLAYER_INFO_SCRIPT: &str = include_str!("get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
@@ -28,13 +29,13 @@ fn send_player_data(tx: mpsc::Sender<Option<PlayerData>>) -> Option<PlayerData> 
 
 
 /// Creates a new thread to gather information on the current song and send it to the main thread once complete.
-pub fn send_player_data_async(tx: mpsc::Sender<Option<PlayerData>>) {
+pub fn send_player_data_async(tx: PlayerDataSender) {
     thread::spawn(move || { send_player_data(tx) });
 }
 
 
 /// Periodically runs a JXA script to gather information on the current song and send it to the main thread.
-pub fn send_player_data_loop(tx: mpsc::Sender<Option<PlayerData>>) {
+pub fn send_player_data_loop(tx: PlayerDataSender) {
     thread::spawn(move || {
         let mut time_remaining = 3.;
         loop {
@@ -70,7 +71,7 @@ impl JXACommand {
 /// Can run different JXA commands depending on the "command" parameter
 /// * `tx` - An MPSC sender to optionally update the player data on the main thread after the command has completed. Set it to None to disable this behavior.
 pub fn run_command<T>(command: JXACommand, tx: T)
-where T: Into<Option<mpsc::Sender<Option<PlayerData>>>> {
+where T: Into<Option<PlayerDataSender>> {
     let tx = tx.into();
     let script = osascript::JavaScript::new(command.as_str());
     thread::spawn( move || {

@@ -1,11 +1,10 @@
 
 // FRONT BURNER
-// TODO: Add screen for when nothing is playing
-// TODO: Only re-render info text every frame, not album art
+// TODO: Function to set drag areas
+// TODO: Fix icons by making them clickable
+// TODO: Buttons for skipping forward/back, play/pause, favoriting songs
 // TODO: Use a smaller drag icon instead of making the whole window draggable (⠿, maybe sideways)
 // TODO: Convert player state to an enum
-// TODO: Buttons for skipping forward/back, play/pause, favoriting songs
-// TODO: Minimize and close buttons
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
@@ -19,23 +18,28 @@
 
 // BACK BURNER
 // TODO: Make window resizable
-// TODO: Dynamically update the draggable areas by syncing with hit_test.c
+// TODO: Add screen for when nothing is playing
 // TODO: Add anti aliasing
 // TODO: Make a third now playing struct for basic song data, embed it in the PlayerData struct, and figure out how to deserialize it
+// TODO: Only re-render info text every frame, not album art
 
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use std::sync::mpsc;
 use std::thread;
 
+use rust_embed::RustEmbed;
+
 use sdl2;
+use sdl2::image::LoadTexture;
 use sdl2::libc::c_int;
 use sdl2::pixels::Color;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::rect::{Rect, Point};
-use sdl2::render::{ TextureCreator, Texture, BlendMode, Canvas, RenderTarget };
-use sdl2_unifont::renderer::SurfaceRenderer;
+use sdl2::render::{ TextureCreator, Texture, BlendMode };
 
 use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_HitTestResult};
 use std::ffi::c_void;
@@ -44,6 +48,8 @@ mod player_data;
 use player_data::{PlayerData, SongData};
 mod osascript_requests;
 use osascript_requests::JXACommand;
+mod engine;
+use engine::Button;
 
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
@@ -79,9 +85,11 @@ fn main() {
 
     // Make the window draggable
     extern { 
+        // pub fn init();
         pub fn hitTest(window: *mut SDL_Window, pt: *const SDL_Point, data: *mut c_void) -> SDL_HitTestResult;
     }
     unsafe {
+        // init();
         SDL_SetWindowHitTest(
             window.raw(),
             Some(hitTest),
@@ -99,10 +107,33 @@ fn main() {
     // Get the canvas's texture creator
     let texture_creator = canvas.texture_creator();
 
+    //Set up and present the canvas
     canvas.set_draw_color(Color::RGB(0, 0, 0));
-    update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
+    engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
     canvas.clear();
     canvas.present();
+
+
+    // Create the icon textures and load them into a dictionary
+    // TODO: maybe move to engine
+    #[derive(RustEmbed)]
+    #[folder = "assets/icons/"]
+    struct IconAsset;
+
+    fn load_icons<'a, T: 'a>(color_mod: u8, blend_mode: BlendMode, texture_creator: &'a TextureCreator<T>) -> HashMap<String, Texture<'a>> {
+        IconAsset::iter().map(|file_path| {
+            let mut tex = texture_creator.load_texture_bytes(&IconAsset::get(&file_path).unwrap().data).unwrap();
+            tex.set_color_mod(color_mod, color_mod, color_mod);
+            tex.set_blend_mode(blend_mode);
+            (file_path.to_string(), tex)
+        }).collect()
+    }
+
+    const ICON_COLOR_MOD_DEFAULT: u8 = 100;
+    const ICON_COLOR_MOD_HOVER: u8 = 200;
+    let icon_textures_default = load_icons(ICON_COLOR_MOD_DEFAULT, BlendMode::Add, &texture_creator);
+    let icon_textures_hover = load_icons(ICON_COLOR_MOD_HOVER, BlendMode::Add, &texture_creator);
+    
 
     // State variables for the rendering loop
     let mut player_and_song_data: Option<(SongData, PlayerData)> = None;
@@ -114,8 +145,30 @@ fn main() {
     // Necessary because WindowEvent::Moved is only sent every three frames
     let mut move_detection_timer = 0;
 
+
+    // A map of all of the buttons on the screen
+    let buttons: HashMap<&'static str, Button> = HashMap::from([
+        ("heart_empty", Button::new( 5, 5,
+            &icon_textures_default["heart_empty.png"],
+            &icon_textures_hover["heart_empty.png"],
+            &icon_textures_hover["heart_empty.png"],
+        )),
+        ("minimize", Button::new( ARTWORK_SIZE as i32 - 30, 5,
+            &icon_textures_default["minimize.png"],
+            &icon_textures_hover["minimize.png"],
+            &icon_textures_hover["minimize.png"],
+        )),
+        ("close", Button::new( ARTWORK_SIZE as i32 - 16, 5,
+            &icon_textures_default["close.png"],
+            &icon_textures_hover["close.png"],
+            &icon_textures_hover["close.png"],
+        )),
+    ]);
+
+
     // This code will run every frame
     'running: loop {
+
         // Input
         let window_pos = {
             let (x, y) = canvas.window().position();
@@ -134,19 +187,25 @@ fn main() {
         
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit {..} |
+                Event::Quit { .. } |
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running;
                 },
-                Event::MouseButtonDown {x, y, which, .. } => {
+                Event::MouseButtonUp { x, y, which, .. } => {
                     if which == 0 { 
                         // TODO: Make buttons for this instead
-                        let command = {
-                            if x < (WINDOW_WIDTH / 3) as i32 { JXACommand::BackTrack }
-                            else if x < (WINDOW_WIDTH * 2 / 3) as i32 { JXACommand::PlayPause }
-                            else { JXACommand::NextTrack }
-                        };
-                        osascript_requests::run_command(command, tx.clone()); 
+                        if y > ARTWORK_SIZE as i32 {
+                            let command = {
+                                if x < (WINDOW_WIDTH / 3) as i32 { JXACommand::BackTrack }
+                                else if x < (WINDOW_WIDTH * 2 / 3) as i32 { JXACommand::PlayPause }
+                                else { JXACommand::NextTrack }
+                            };
+                            osascript_requests::run_command(command, tx.clone()); 
+                        }
+                        if buttons["heart_empty"].is_hovering(x, y) { println!("heart empty"); }
+                        // TODO: This doesn't work fsr
+                        if buttons["minimize"].is_hovering(x, y) { canvas.window_mut().minimize(); }
+                        if buttons["close"].is_hovering(x, y) { break 'running; }
                     }
                 }
                 Event::Window { win_event, .. } => {
@@ -154,7 +213,7 @@ fn main() {
                         WindowEvent::Moved {..} => {
                             move_detection_timer = 3;
                             // Update the canvas scale in case the user drags the window to a different monitor
-                            update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
+                            engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
                         },
                         _ => {}
                     }
@@ -164,6 +223,7 @@ fn main() {
             }
         }
         
+        // If the channel has new data in it, update the player and song data on this thread
         if let Ok(pl_data) = rx.try_recv() {
             player_and_song_data = match pl_data {
                 Some(pl_data_unwrapped) => { 
@@ -175,42 +235,40 @@ fn main() {
             last_snapshot_time = Instant::now();
         }
 
+        // Clear the canvas for drawing
         canvas.set_draw_color(Color::BLACK);
         canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
         if let Some((u_song_data, u_player_data)) = &player_and_song_data {
             let info_tex = u_song_data.info_texture();
+            let info_qry = info_tex.query();
             let art_tex = u_song_data.artwork_texture();
-            let info_qry = u_song_data.info_texture_query();
-            //let art_qry = u_song_data.artwork_texture_query();
             
             if u_player_data.player_state == "playing" {
                 info_scroll_pos -= 1; 
                 info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
             }
-
-            canvas.copy(&art_tex, None, Rect::new(
-                0,
-                0,
-                ARTWORK_SIZE,
-                ARTWORK_SIZE,
+            
+            // Draw the album art
+            canvas.copy(art_tex, None, Rect::new(0,0, 
+                ARTWORK_SIZE, 
+                ARTWORK_SIZE
             )).unwrap();
 
-            canvas.copy(info_tex, None, Rect::new(
+            //Draw the info text, once normally and once shifted to the right for seamless looping
+            engine::copy_unscaled(&info_tex, 
                 info_scroll_pos, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
-                info_qry.width, 
-                info_qry.height
-            )).unwrap();
-
-            canvas.copy(info_tex, None, Rect::new(
+                &mut canvas
+            ).unwrap();
+            engine::copy_unscaled(&info_tex, 
                 info_scroll_pos + info_qry.width as i32 + INFO_SPACING, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
-                info_qry.width, 
-                info_qry.height
-            )).unwrap();
+                &mut canvas
+            ).unwrap();
 
+            //Draw an overlay if the user is hovering over the window
             if window_input_focus && window_rect.contains_point(mouse_pos_relative) || move_detection_timer > 0 {
                 // Darken the cover art
                 canvas.set_blend_mode(BlendMode::Mod);
@@ -232,6 +290,9 @@ fn main() {
                         ARTWORK_SIZE as i32 - 1
                     )
                 ).unwrap();
+
+                // Draw the button icons
+                for button in buttons.values() { button.render(&mut canvas, event_pump.mouse_state()).unwrap(); }
             }
         }
         
@@ -242,24 +303,9 @@ fn main() {
         canvas.set_blend_mode(BlendMode::Add);
         canvas.set_draw_color(Color::RGB(30, 30, 30));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
-
-
+        
         //Present the canvas
         canvas.present();
         thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
     }
-}
-
-// Scale the window so it appears the same on high-DPI displays, works fine for now 
-// Based on https://discourse.libsdl.org/t/high-dpi-mode/34411/2
-fn update_canvas_scale<T: RenderTarget>(canvas: &mut Canvas<T>, window_width: u32, window_height: u32) {
-    let (w, h) = canvas.output_size().unwrap();
-    canvas.set_scale((w / window_width) as f32, (h / window_height) as f32).unwrap();
-}
-
-
-fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) -> Texture<'a> {
-    let text_renderer = SurfaceRenderer::new(Color::WHITE, Color::BLACK);
-    let text_surface = text_renderer.draw(text).unwrap();
-    text_surface.as_texture(texture_creator).unwrap()
 }
