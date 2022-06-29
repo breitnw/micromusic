@@ -18,6 +18,7 @@ pub struct Button<'a> {
     texture_default: &'a Texture<'a>,
     texture_hover: &'a Texture<'a>,
     texture_pressed: &'a Texture<'a>,
+    is_active: bool,
 }
 
 impl<'a> Button<'a> {
@@ -31,6 +32,7 @@ impl<'a> Button<'a> {
                 texture_query.width,
                 texture_query.height
             ),
+            is_active: true,
         }
     }
 
@@ -46,18 +48,22 @@ impl<'a> Button<'a> {
     }
     
     pub fn render<T: sdl2::render::RenderTarget>(&self, canvas: &mut Canvas<T>, mouse_state: MouseState) -> std::result::Result<(), String> {
-        let tex = match self.get_state(mouse_state) {
-            ButtonState::DEFAULT => &self.texture_default,
-            ButtonState::HOVER => &self.texture_hover,
-            ButtonState::PRESSED => &self.texture_pressed,
-        };
-        canvas.copy(tex, None, self.rect)?;
+        if self.is_active {
+            let tex = match self.get_state(mouse_state) {
+                ButtonState::DEFAULT => &self.texture_default,
+                ButtonState::HOVER => &self.texture_hover,
+                ButtonState::PRESSED => &self.texture_pressed,
+            };
+            canvas.copy(tex, None, self.rect)?;
+        }
         Ok(())
     }
 
     pub fn is_hovering(&self, mouse_x: i32, mouse_y: i32) -> bool {
-        self.rect.contains_point(Point::new(mouse_x, mouse_y))
+        self.is_active && self.rect.contains_point(Point::new(mouse_x, mouse_y))
     }
+
+    pub fn set_active(&mut self, val: bool) { self.is_active = val }
 }
 
 

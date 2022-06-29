@@ -5,11 +5,12 @@ var track = app.currentTrack;
 var artwork = track.artworks[0];
 
 return {
-    song_name: track.name(),
-    song_artist: track.artist(),
-    song_album: track.album(),
-    song_length: track.finish(),
-    artwork_data: artwork.rawData(),
+    track_name: track.name(),
+    track_artist: track.artist(),
+    track_album: track.album(),
+    track_loved: track.loved(),
+    track_length: track.finish(),
+    track_artwork_data: artwork.rawData(),
 
     player_pos: app.playerPosition(),
     player_state: app.playerState(),

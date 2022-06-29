@@ -9,9 +9,9 @@ use crate::player_data::PlayerData;
 
 type PlayerDataSender = Sender<Option<PlayerData>>;
 
-/// Gathers information on the current song and sends it to the main thread once complete.
+/// Gathers information on the current track and sends it to the main thread once complete.
 fn send_player_data(tx: PlayerDataSender) -> Option<PlayerData> {
-    // let err_test: RawSongData = script.execute().unwrap();
+    // let err_test: RawTrackData = script.execute().unwrap();
     const PLAYER_INFO_SCRIPT: &str = include_str!("get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
 
@@ -28,22 +28,22 @@ fn send_player_data(tx: PlayerDataSender) -> Option<PlayerData> {
 }
 
 
-/// Creates a new thread to gather information on the current song and send it to the main thread once complete.
+/// Creates a new thread to gather information on the current track and send it to the main thread once complete.
 pub fn send_player_data_async(tx: PlayerDataSender) {
     thread::spawn(move || { send_player_data(tx) });
 }
 
 
-/// Periodically runs a JXA script to gather information on the current song and send it to the main thread.
+/// Periodically runs a JXA script to gather information on the current track and send it to the main thread.
 pub fn send_player_data_loop(tx: PlayerDataSender) {
     thread::spawn(move || {
         let mut time_remaining = 3.;
         loop {
             if let Some(player_data) = send_player_data(tx.clone()) {
-                time_remaining = player_data.song_length - player_data.player_pos;
+                time_remaining = player_data.track_length - player_data.player_pos;
             }
-            // If the song is almost over, don't sleep the full duration so the info can be updated immediately after it ends
-            thread::sleep(Duration::from_secs_f64(time_remaining.min(3.)));
+            // If the track is almost over, don't sleep the full duration so the info can be updated immediately after it ends
+            thread::sleep(Duration::from_secs_f64(time_remaining.min(3.0).max(0.2)));
         }
     });
 }
@@ -54,6 +54,8 @@ pub enum JXACommand {
     NextTrack,
     PreviousTrack,
     BackTrack,
+    Love,
+    Unlove,
 }
 
 impl JXACommand {
@@ -62,7 +64,9 @@ impl JXACommand {
             JXACommand::PlayPause => "Application('Music').playpause()",
             JXACommand::NextTrack => "Application('Music').nextTrack()",
             JXACommand::PreviousTrack => "Application('Music').previousTrack()",
-            JXACommand::BackTrack => "Application('Music').backTrack()"
+            JXACommand::BackTrack => "Application('Music').backTrack()",
+            JXACommand::Love => "Application('Music').currentTrack.loved = true",
+            JXACommand::Unlove => "Application('Music').currentTrack.loved = false"
         }
     }
 }
