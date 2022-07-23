@@ -3,24 +3,38 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
 
-// #define RESIZE_BORDER 20
 
-const SDL_Rect drag_areas[] = {
-    { 0, 20, 200, 180 },
-    { 20, 0, 140, 20 },
-};
+typedef struct HitTestData {
+    SDL_Rect ** add;
+    int add_len;
+    SDL_Rect ** sub;
+    int sub_len;
+} HitTestData;
 
-static const SDL_Rect *areas = drag_areas;
-static int numareas = SDL_arraysize(drag_areas);
 
-SDL_HitTestResult hitTest(SDL_Window *window, const SDL_Point *pt, void *data) {
-    int i;
+SDL_HitTestResult hitTest(__attribute__((unused)) SDL_Window *window, const SDL_Point *pt, void *data) {
+    
+    HitTestData hit_test_data = *((HitTestData*) data);
 
-    for (i = 0; i < numareas; i++) {
-        if (SDL_PointInRect(pt, &areas[i])) {
+    int i = 0;
+    int j = 0;
+
+    for (i = 0; i < hit_test_data.add_len; i++) {
+        if (SDL_PointInRect(pt, hit_test_data.add[i])) {
+            for (j = 0; j < hit_test_data.sub_len; j++) {
+                if (SDL_PointInRect(pt, hit_test_data.sub[j])) {
+                    return SDL_HITTEST_NORMAL;
+                }
+            }
             return SDL_HITTEST_DRAGGABLE;
         }
     }
+
+    // if (hit_test_data.sub_len > 0) {
+    //     SDL_Rect rect = *hit_test_data.sub[0];
+    //     SDL_Log("x: %i, y: %i, w: %i, h: %i", rect.x, rect.y, rect.w, rect.h);
+    //     SDL_Log("length: %i", hit_test_data.add_len);
+    // }
 
     return SDL_HITTEST_NORMAL;
 }

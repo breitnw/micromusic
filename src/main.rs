@@ -1,7 +1,7 @@
 
 // FRONT BURNER
-// TODO: Function to set drag areas
-// Maybe a system where you can add draggable rects and then non-draggable rects (buttons, etc) on top of them
+// TODO: Pass drag areas as a pointer to hit test function
+// A system where you can add draggable rects and then non-draggable rects (buttons, etc) on top of them
 // TODO: Fix icons by making them clickable
 // TODO: Buttons for skipping forward/back, play/pause, favoriting tracks
 // TODO: Use a smaller drag icon instead of making the whole window draggable (⠿, maybe sideways)
@@ -10,17 +10,18 @@
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
 // TODO: Fix crash when there's an emoji in track title
+// TODO: Fix crash when clicking heart button while nothing's playing
 
 // FIXES
+// TODO: Clickable area on buttons is slightly smaller than highlighted area, fix this by appending slightly larger rects to 'sub' vec
 // TODO: Flickering when drag begins (use hit test event instead of window moved?) and with trackpad
 // TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
 // TODO: Title clipping in on tracks with short names
-// TODO: Antialiasing issues moving back and forth between displays (try regenerating texture?)
+// TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 
 // BACK BURNER
 // TODO: Make window resizable
-// TODO: Add screen for when nothing is playing
-// TODO: Add anti aliasing
+// TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
 // TODO: Make a third now playing struct for basic track data, embed it in the PlayerData struct, and figure out how to deserialize it
 // TODO: Only re-render info text every frame, not album art
 
@@ -37,11 +38,10 @@ use sdl2::image::LoadTexture;
 use sdl2::libc::c_int;
 use sdl2::pixels::Color;
 use sdl2::event::{Event, WindowEvent};
-use sdl2::keyboard::Keycode;
 use sdl2::rect::{Rect, Point};
 use sdl2::render::{ TextureCreator, Texture, BlendMode };
 
-use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_HitTestResult, SDL_GetGlobalMouseState};
+use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTestResult};
 use std::ffi::c_void;
 
 mod player_data;
@@ -74,7 +74,7 @@ fn main() {
     const WINDOW_HEIGHT: u32 = ARTWORK_SIZE + INFO_AREA_HEIGHT;
     let window_rect = Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-    //Create the window
+    // Create the window
     let mut window = video_subsystem.window("micromusic", WINDOW_WIDTH, WINDOW_HEIGHT)
         .position_centered()
         .allow_highdpi()
@@ -83,19 +83,40 @@ fn main() {
         .unwrap();
     window.raise();
 
+    
     // Make the window draggable
-    extern { 
-        // pub fn init();
+    fn raw_heap_rect(x: c_int, y: c_int, w: c_int, h: c_int) -> *mut SDL_Rect {
+        Box::into_raw(Box::new(SDL_Rect { x, y, w, h } ))
+    }
+
+    let add = vec![ raw_heap_rect(0, 0, 200, 200) ];
+    let mut sub = vec![];
+    
+    #[repr(C)]
+    struct HitTestData {
+        add: *const *mut SDL_Rect,
+        add_len: c_int,
+        sub: *const *mut SDL_Rect,
+        sub_len: c_int
+    }
+    let mut hit_test_data = HitTestData {
+        add: add.as_ptr(),
+        add_len: add.len() as c_int,
+        sub: sub.as_ptr(),
+        sub_len: sub.len() as c_int,
+    };
+    
+    extern "C" { 
         pub fn hitTest(window: *mut SDL_Window, pt: *const SDL_Point, data: *mut c_void) -> SDL_HitTestResult;
     }
     unsafe {
-        // init();
         SDL_SetWindowHitTest(
             window.raw(),
             Some(hitTest),
-            1 as *mut sdl2::libc::c_void,
+            &mut hit_test_data as *mut _ as *mut c_void,
         );
     }
+    
 
     //Create a canvas from the window
     let mut canvas = window
@@ -177,6 +198,11 @@ fn main() {
             &icon_textures_hover["pause.png"],
             &icon_textures_hover["pause.png"],
         )),
+        ("play", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 / 2 - 5,
+            &icon_textures_default["play.png"],
+            &icon_textures_hover["play.png"],
+            &icon_textures_hover["play.png"],
+        )),
         ("next_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 18, ARTWORK_SIZE as i32 / 2 - 5,
             &icon_textures_default["next_track.png"],
             &icon_textures_hover["next_track.png"],
@@ -199,51 +225,47 @@ fn main() {
         // )),
     ]);
 
-
     // This code will run every frame
     'running: loop {
 
-        // Input
-        let window_pos = {
-            let (x, y) = canvas.window().position();
-            Point::new(x, y)
-        };
-        let mouse_pos_absolute = unsafe {
-            let (mut x, mut y): (c_int, c_int) = (0, 0);
-            sdl2::sys::SDL_GetGlobalMouseState(&mut x, &mut y); 
-            Point::new(x, y)
-        };
-        let mouse_pos_relative = mouse_pos_absolute - window_pos;
+        // Mouse state
+        let mouse_state = engine::mouse::MouseState::get_relative_state(&event_pump, canvas.window());
         let window_input_focus = &canvas.window().window_flags() & 512 == 512; // input focus: 512, mouse focus: 1024
 
         // Reduce the move detection timer by 1
         move_detection_timer = 0.max(move_detection_timer - 1);
         
+        // Iterate through the input events
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } |
-                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                Event::Quit { .. } => {
                     break 'running;
                 },
                 Event::MouseButtonUp { x, y, which, .. } => {
-                    if which == 0 { 
+                    if which == 0 {
                         // TODO: Make buttons for this instead
-                        if y > ARTWORK_SIZE as i32 {
-                            let command = {
-                                if x < (WINDOW_WIDTH / 3) as i32 { JXACommand::BackTrack }
-                                else if x < (WINDOW_WIDTH * 2 / 3) as i32 { JXACommand::PlayPause }
-                                else { JXACommand::NextTrack }
-                            };
-                            osascript_requests::run_command(command, tx.clone()); 
-                        }
                         if buttons["heart_empty"].is_hovering(x, y) { 
                             osascript_requests::run_command(JXACommand::Love, tx.clone()) 
-                        } else if buttons["heart_filled"].is_hovering(x, y) { 
+                        } 
+                        else if buttons["heart_filled"].is_hovering(x, y) { 
                             osascript_requests::run_command(JXACommand::Unlove, tx.clone()) 
                         }
-                        // TODO: This doesn't work fsr
-                        if buttons["minimize"].is_hovering(x, y) { canvas.window_mut().minimize(); }
-                        if buttons["close"].is_hovering(x, y) { break 'running; }
+                        else if buttons["play"].is_hovering(x, y) || buttons["pause"].is_hovering(x, y) {
+                            osascript_requests::run_command(JXACommand::PlayPause, tx.clone())
+                        }
+                        else if buttons["back_track"].is_hovering(x, y) {
+                            osascript_requests::run_command(JXACommand::BackTrack, tx.clone())
+                        }
+                        else if buttons["next_track"].is_hovering(x, y) {
+                            osascript_requests::run_command(JXACommand::NextTrack, tx.clone())
+                        }
+                        else if buttons["minimize"].is_hovering(x, y) { 
+                            // TODO: Probably find a better solution, this is janky asf
+                            canvas.window_mut().set_bordered(true);
+                            canvas.window_mut().minimize(); 
+                            canvas.window_mut().set_bordered(false);
+                        }
+                        else if buttons["close"].is_hovering(x, y) { break 'running; }
                     }
                 }
                 Event::Window { win_event, .. } => {
@@ -255,7 +277,6 @@ fn main() {
                         },
                         _ => {}
                     }
-                    // TODO: Add event to update canvas rect / dimension vars when canvas is resized
                 }
                 _ => {}
             }
@@ -278,6 +299,12 @@ fn main() {
         canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
+        // Deactivate all of the buttons
+        for button in buttons.values_mut() {
+            button.active = false;
+        }
+
+        // If the player data has been received, run this code
         if let Some((u_track_data, u_player_data)) = &player_and_track_data {
             let info_tex = u_track_data.info_texture();
             let info_qry = info_tex.query();
@@ -307,7 +334,8 @@ fn main() {
             ).unwrap();
 
             //Draw an overlay if the user is hovering over the window
-            if window_input_focus && window_rect.contains_point(mouse_pos_relative) || move_detection_timer > 0 {
+            //TODO: find a way to avoid nesting this if statement inside the last
+            if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || move_detection_timer > 0 {
                 // Darken the cover art
                 canvas.set_blend_mode(BlendMode::Mod);
                 canvas.set_draw_color(Color::RGB( 150, 150, 150));
@@ -330,15 +358,33 @@ fn main() {
                 ).unwrap();
 
                 // Update button visibility based on new data
-                buttons.get_mut("heart_empty").unwrap().set_active(!u_track_data.loved());
-                buttons.get_mut("heart_filled").unwrap().set_active(u_track_data.loved());
+                buttons.get_mut("next_track").unwrap().active = true;
+                buttons.get_mut("back_track").unwrap().active = true;
 
-                // Draw the button icons
-                // TODO: Use global mouse state to prevent button sticking after going out of frame
-                for button in buttons.values() { button.render(&mut canvas, event_pump.mouse_state()).unwrap(); }
+                buttons.get_mut("minimize").unwrap().active = true;
+                buttons.get_mut("close").unwrap().active = true;   
+
+                buttons.get_mut("heart_empty").unwrap().active = !u_track_data.loved();
+                buttons.get_mut("heart_filled").unwrap().active = u_track_data.loved();
+
+                buttons.get_mut("play").unwrap().active = u_player_data.player_state != "playing";
+                buttons.get_mut("pause").unwrap().active = u_player_data.player_state == "playing";
             }
         }
-        
+
+        // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button
+        // TODO: Use global mouse state to prevent button sticking after going out of frame
+        sub.clear();
+        for button in buttons.values() { 
+            button.render(&mut canvas, mouse_state).unwrap(); 
+            if button.active {
+                sub.push(raw_heap_rect(button.rect.x, button.rect.y, button.rect.w, button.rect.h));
+            }
+        }
+        hit_test_data.sub_len = sub.len() as c_int;
+        hit_test_data.sub = sub.as_ptr();
+       
+    
         //Draw a border
         canvas.set_blend_mode(BlendMode::Mod);
         canvas.set_draw_color(Color::RGB(200, 200, 200));

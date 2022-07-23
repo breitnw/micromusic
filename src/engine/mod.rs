@@ -1,10 +1,12 @@
 
-use sdl2::mouse::{MouseState, MouseButton};
+use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::rect::{Rect, Point};
 use sdl2::render::{RenderTarget, Texture, Canvas, TextureCreator};
 use sdl2_unifont::renderer::SurfaceRenderer;
 
+pub mod mouse;
+use mouse::MouseState;
 
 //Enum representing button states
 enum ButtonState {
@@ -14,25 +16,25 @@ enum ButtonState {
 }
 // Struct representing a button with different states
 pub struct Button<'a> {
-    rect: Rect,
+    pub rect: Rect,
+    pub active: bool,
     texture_default: &'a Texture<'a>,
     texture_hover: &'a Texture<'a>,
     texture_pressed: &'a Texture<'a>,
-    is_active: bool,
 }
 
 impl<'a> Button<'a> {
     pub fn new(x: i32, y: i32, texture_default: &'a Texture<'a>, texture_hover: &'a Texture<'a>, texture_pressed: &'a Texture<'a>) -> Button<'a> {
         let texture_query = texture_default.query();
         Button {
-            texture_default,
-            texture_hover,
-            texture_pressed,
             rect: Rect::new(x, y, 
                 texture_query.width,
                 texture_query.height
             ),
-            is_active: true,
+            active: true,
+            texture_default,
+            texture_hover,
+            texture_pressed,
         }
     }
 
@@ -48,7 +50,7 @@ impl<'a> Button<'a> {
     }
     
     pub fn render<T: sdl2::render::RenderTarget>(&self, canvas: &mut Canvas<T>, mouse_state: MouseState) -> std::result::Result<(), String> {
-        if self.is_active {
+        if self.active {
             let tex = match self.get_state(mouse_state) {
                 ButtonState::DEFAULT => &self.texture_default,
                 ButtonState::HOVER => &self.texture_hover,
@@ -60,10 +62,8 @@ impl<'a> Button<'a> {
     }
 
     pub fn is_hovering(&self, mouse_x: i32, mouse_y: i32) -> bool {
-        self.is_active && self.rect.contains_point(Point::new(mouse_x, mouse_y))
+        self.active && self.rect.contains_point(Point::new(mouse_x, mouse_y))
     }
-
-    pub fn set_active(&mut self, val: bool) { self.is_active = val }
 }
 
 

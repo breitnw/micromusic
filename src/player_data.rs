@@ -38,7 +38,7 @@ impl PlayerData {
     }
 }
 
-
+#[allow(dead_code)]
 pub struct TrackData<'a> {
     name: String,
     artist: String,
@@ -49,6 +49,7 @@ pub struct TrackData<'a> {
 }
 
 // TODO: not necessary to create a new TrackData every time data is received, only when song changes
+#[allow(dead_code)]
 impl<'a> TrackData<'a> {
     pub fn new<T: 'a>(data: &PlayerData, texture_creator: &'a TextureCreator<T>) -> Result<TrackData<'a>, Box<dyn std::error::Error>> {
         //Create a texture from the album info
