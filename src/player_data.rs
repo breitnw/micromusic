@@ -1,3 +1,4 @@
+use sdl2::image::LoadTexture;
 use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
@@ -58,18 +59,15 @@ impl<'a> TrackData<'a> {
             &texture_creator,
         );
 
-        // Load the album artwork texture from the raw bytes and store it in artwork_texture
+        // Load the raw bytes for the album artwork
         let raw_artwork_data: &str = &data.track_artwork_data.as_ref().ok_or("Artwork data must not be None")?;
         let bytes = Vec::from_hex(&raw_artwork_data[8..raw_artwork_data.len() - 2])?;
-        let rw = RWops::from_bytes(&bytes)?;
 
         // Use linear filtering when creating the texture 
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
 
         // Use the texture creator to create the texture
-        let artwork_texture = texture_creator.create_texture_from_surface(
-            rw.load().expect("Couldn't load image from bytes")
-        ).unwrap();
+        let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
         
         // Reset filtering to nearest
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");

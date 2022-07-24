@@ -1,10 +1,6 @@
 
 // FRONT BURNER
-// TODO: Pass drag areas as a pointer to hit test function
-// A system where you can add draggable rects and then non-draggable rects (buttons, etc) on top of them
-// TODO: Fix icons by making them clickable
 // TODO: Buttons for skipping forward/back, play/pause, favoriting tracks
-// TODO: Use a smaller drag icon instead of making the whole window draggable (⠿, maybe sideways)
 // TODO: Convert player state to an enum
 
 // CRASHES
@@ -15,7 +11,7 @@
 // FIXES
 // TODO: Clickable area on buttons is slightly smaller than highlighted area, fix this by appending slightly larger rects to 'sub' vec
 // TODO: Flickering when drag begins (use hit test event instead of window moved?) and with trackpad
-// TODO: RWops might be done incorrectly, probably don't need to make a new texture every update
+// TODO: Avoid making a new texture every update
 // TODO: Title clipping in on tracks with short names
 // TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 
@@ -193,22 +189,22 @@ fn main() {
             &icon_textures_hover["close.png"],
             &icon_textures_hover["close.png"],
         )),
-        ("pause", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 / 2 - 5,
+        ("pause", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 - 20,
             &icon_textures_default["pause.png"],
             &icon_textures_hover["pause.png"],
             &icon_textures_hover["pause.png"],
         )),
-        ("play", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 / 2 - 5,
+        ("play", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 - 20,
             &icon_textures_default["play.png"],
             &icon_textures_hover["play.png"],
             &icon_textures_hover["play.png"],
         )),
-        ("next_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 18, ARTWORK_SIZE as i32 / 2 - 5,
+        ("next_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 18, ARTWORK_SIZE as i32 - 20,
             &icon_textures_default["next_track.png"],
             &icon_textures_hover["next_track.png"],
             &icon_textures_hover["next_track.png"],
         )),
-        ("back_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 18, ARTWORK_SIZE as i32 / 2 - 5,
+        ("back_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 18, ARTWORK_SIZE as i32 - 20,
             &icon_textures_default["back_track.png"],
             &icon_textures_hover["back_track.png"],
             &icon_textures_hover["back_track.png"],
