@@ -4,6 +4,13 @@ var app = Application('Music');
 var track = app.currentTrack;
 var artwork = track.artworks[0];
 
+// Player state must be converted to CamelCase so it can be used as an enum
+var player_state = app.playerState().split(" ");
+for (let i = 0; i < player_state.length; i++) {
+    player_state[i] = player_state[i][0].toUpperCase() + player_state[i].substr(1);
+}
+player_state = player_state.join("");
+
 return {
     track_name: track.name(),
     track_artist: track.artist(),
@@ -13,5 +20,5 @@ return {
     track_artwork_data: artwork.rawData(),
 
     player_pos: app.playerPosition(),
-    player_state: app.playerState(),
+    player_state: player_state,
 }

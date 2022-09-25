@@ -1,7 +1,8 @@
 
 // FRONT BURNER
 // TODO: Buttons for skipping forward/back, play/pause, favoriting tracks
-// TODO: Convert player state to an enum
+// TODO: Automatically get text colors based on image / dark or light theme
+// TODO: Remember window position on close
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
@@ -12,7 +13,7 @@
 // TODO: Clickable area on buttons is slightly smaller than highlighted area, fix this by appending slightly larger rects to 'sub' vec
 // TODO: Flickering when drag begins (use hit test event instead of window moved?) and with trackpad
 // TODO: Avoid making a new texture every update
-// TODO: Title clipping in on tracks with short names
+// TODO: Title clipping on tracks with short names
 // TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 
 // BACK BURNER
@@ -41,7 +42,7 @@ use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTe
 use std::ffi::c_void;
 
 mod player_data;
-use player_data::{PlayerData, TrackData};
+use player_data::{PlayerData, TrackData, PlayerState};
 mod osascript_requests;
 use osascript_requests::JXACommand;
 mod engine;
@@ -85,7 +86,7 @@ fn main() {
         Box::into_raw(Box::new(SDL_Rect { x, y, w, h } ))
     }
 
-    let add = vec![ raw_heap_rect(0, 0, 200, 200) ];
+    let add = vec![ raw_heap_rect(0, 0, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32) ];
     let mut sub = vec![];
     
     #[repr(C)]
@@ -159,6 +160,10 @@ fn main() {
     let mut last_snapshot_time = Instant::now();
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
+
+    // Color variables
+    let info_background_color = Color::RGB(0, 0, 0);
+    let info_foreground_color = Color::RGB(255, 255, 255);
 
     // A timer used to tell whether the window is currently being moved, decremented every frame
     // Necessary because WindowEvent::Moved is only sent every three frames
@@ -283,7 +288,7 @@ fn main() {
             player_and_track_data = match pl_data {
                 Some(pl_data_unwrapped) => { 
                     // Since it includes the filled image data, this clone is probably pretty significant and may be causing the lag
-                    Some((TrackData::new(&pl_data_unwrapped, &texture_creator).unwrap(), pl_data_unwrapped))
+                    Some((TrackData::new(&pl_data_unwrapped, &texture_creator, info_foreground_color, info_background_color).unwrap(), pl_data_unwrapped))
                 }
                 None => None
             };
@@ -291,7 +296,7 @@ fn main() {
         }
 
         // Clear the canvas for drawing
-        canvas.set_draw_color(Color::BLACK);
+        canvas.set_draw_color(info_background_color);
         canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
@@ -306,7 +311,7 @@ fn main() {
             let info_qry = info_tex.query();
             let art_tex = u_track_data.artwork_texture();
             
-            if u_player_data.player_state == "playing" {
+            if u_player_data.player_state == PlayerState::Playing {
                 info_scroll_pos -= 1; 
                 info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
             }
@@ -342,7 +347,7 @@ fn main() {
                 canvas.set_draw_color(Color::RGB(100, 100, 100));
 
                 let percent_elapsed = (u_player_data.player_pos 
-                    + if u_player_data.player_state == "playing" { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
+                    + if u_player_data.player_state == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
                     / u_player_data.track_length;
 
                 canvas.draw_line(
@@ -363,8 +368,8 @@ fn main() {
                 buttons.get_mut("heart_empty").unwrap().active = !u_track_data.loved();
                 buttons.get_mut("heart_filled").unwrap().active = u_track_data.loved();
 
-                buttons.get_mut("play").unwrap().active = u_player_data.player_state != "playing";
-                buttons.get_mut("pause").unwrap().active = u_player_data.player_state == "playing";
+                buttons.get_mut("play").unwrap().active = u_player_data.player_state != PlayerState::Playing;
+                buttons.get_mut("pause").unwrap().active = u_player_data.player_state == PlayerState::Playing;
             }
         }
 

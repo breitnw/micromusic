@@ -10,9 +10,9 @@ use mouse::MouseState;
 
 //Enum representing button states
 enum ButtonState {
-    DEFAULT,
-    HOVER,
-    PRESSED,
+    Default,
+    Hover,
+    Pressed,
 }
 // Struct representing a button with different states
 pub struct Button<'a> {
@@ -42,19 +42,19 @@ impl<'a> Button<'a> {
         let mouse_pos = Point::new(mouse_state.x(), mouse_state.y());
         if self.rect.contains_point(mouse_pos) {
             if mouse_state.is_mouse_button_pressed(MouseButton::Left) {
-                return ButtonState::PRESSED;
+                return ButtonState::Pressed;
             }
-            return ButtonState::HOVER;
+            return ButtonState::Hover;
         }
-        return ButtonState::DEFAULT;
+        return ButtonState::Default;
     }
     
     pub fn render<T: sdl2::render::RenderTarget>(&self, canvas: &mut Canvas<T>, mouse_state: MouseState) -> std::result::Result<(), String> {
         if self.active {
             let tex = match self.get_state(mouse_state) {
-                ButtonState::DEFAULT => &self.texture_default,
-                ButtonState::HOVER => &self.texture_hover,
-                ButtonState::PRESSED => &self.texture_pressed,
+                ButtonState::Default => &self.texture_default,
+                ButtonState::Hover => &self.texture_hover,
+                ButtonState::Pressed => &self.texture_pressed,
             };
             canvas.copy(tex, None, self.rect)?;
         }
@@ -75,8 +75,8 @@ pub fn update_canvas_scale<T: RenderTarget>(canvas: &mut Canvas<T>, window_width
 }
 
 /// Converts a string to a texture
-pub fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>) -> Texture<'a> {
-    let text_renderer = SurfaceRenderer::new(Color::WHITE, Color::BLACK);
+pub fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>, foreground_color: Color, background_color: Color) -> Texture<'a> {
+    let text_renderer = SurfaceRenderer::new(foreground_color, background_color);
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
 }

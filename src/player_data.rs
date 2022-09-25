@@ -1,13 +1,11 @@
 use sdl2::image::LoadTexture;
+use sdl2::pixels::Color;
 use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
 use serde::Deserialize;
 
 use hex::FromHex;
-use sdl2::rwops::RWops;
-use sdl2::image::ImageRWops;
-
 
 #[derive(Deserialize)]
 pub struct PlayerData {
@@ -19,7 +17,7 @@ pub struct PlayerData {
     pub track_artwork_data: Option<String>,
 
     pub player_pos: f64,
-    pub player_state: String, //"stopped"/‌"playing"/‌"paused"/‌"fast forwarding"/‌"rewinding"
+    pub player_state: PlayerState,
 }
 
 impl PlayerData {
@@ -39,6 +37,15 @@ impl PlayerData {
     }
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq)]
+pub enum PlayerState {
+    Stopped,
+    Playing,
+    Paused,
+    FastForwarding,
+    Rewinding,
+}
+
 #[allow(dead_code)]
 pub struct TrackData<'a> {
     name: String,
@@ -52,11 +59,14 @@ pub struct TrackData<'a> {
 // TODO: not necessary to create a new TrackData every time data is received, only when song changes
 #[allow(dead_code)]
 impl<'a> TrackData<'a> {
-    pub fn new<T: 'a>(data: &PlayerData, texture_creator: &'a TextureCreator<T>) -> Result<TrackData<'a>, Box<dyn std::error::Error>> {
+    // TODO: find a better way to determine foreground and background color for the texture than passing them as parameters to this function
+    pub fn new<T: 'a>(data: &PlayerData, texture_creator: &'a TextureCreator<T>, info_foreground_color: Color, info_background_color: Color) -> Result<TrackData<'a>, Box<dyn std::error::Error>> {
         //Create a texture from the album info
         let info_texture = crate::engine::text_to_texture(
             &format!("{} - {} - {}", data.track_artist, data.track_name, data.track_album),
             &texture_creator,
+            info_foreground_color,
+            info_background_color
         );
 
         // Load the raw bytes for the album artwork

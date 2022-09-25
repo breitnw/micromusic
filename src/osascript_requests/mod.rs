@@ -15,15 +15,17 @@ fn send_player_data(tx: PlayerDataSender) -> Option<PlayerData> {
     const PLAYER_INFO_SCRIPT: &str = include_str!("get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
 
-    if let Ok::<PlayerData, _>(player_data) = script.execute() {
-        let cloned_pl_data = player_data.clone_without_artwork();
-        tx.send(Some(player_data)).expect("Couldn't send player data through the channel");
-        Some(cloned_pl_data)
-    } 
-    else {
-        tx.send(None).expect("Couldn't send player data through the channel");
-        println!("Error receiving data from Apple Music.");
-        None
+    match script.execute() {
+        Ok::<PlayerData, _>(player_data) => {
+            let cloned_pl_data = player_data.clone_without_artwork();
+            tx.send(Some(player_data)).expect("Couldn't send player data through the channel");
+            return Some(cloned_pl_data)
+        }
+        Err(e) => {
+            tx.send(None).expect("Couldn't send player data through the channel");
+            println!("Error receiving data from Apple Music: {e}");
+            return None
+        }
     }
 }
 
