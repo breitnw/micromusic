@@ -277,7 +277,7 @@ fn main() {
 
         // Reset drag_in_progress if the mouse button was just lifted
         if mouse_state.is_mouse_button_pressed(sdl2::mouse::MouseButton::Left) {
-            if window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) {
+            if window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) && window_input_focus {
                 window_interaction_in_progress = true;
             }
         } else {
