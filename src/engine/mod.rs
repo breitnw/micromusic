@@ -16,7 +16,8 @@ enum ButtonState {
 }
 // Struct representing a button with different states
 pub struct Button<'a> {
-    pub rect: Rect,
+    pub collision_rect: Rect,
+    render_rect: Rect,
     pub active: bool,
     texture_default: &'a Texture<'a>,
     texture_hover: &'a Texture<'a>,
@@ -26,10 +27,17 @@ pub struct Button<'a> {
 impl<'a> Button<'a> {
     pub fn new(x: i32, y: i32, texture_default: &'a Texture<'a>, texture_hover: &'a Texture<'a>, texture_pressed: &'a Texture<'a>) -> Button<'a> {
         let texture_query = texture_default.query();
+        const BUTTON_COLLISION_MARGIN: u8 = 2;
         Button {
-            rect: Rect::new(x, y, 
+            collision_rect: Rect::new(
+                x - BUTTON_COLLISION_MARGIN as i32, 
+                y - BUTTON_COLLISION_MARGIN as i32, 
+                texture_query.width + BUTTON_COLLISION_MARGIN as u32 * 2,
+                texture_query.height + BUTTON_COLLISION_MARGIN as u32 * 2,
+            ),
+            render_rect: Rect::new(x, y, 
                 texture_query.width,
-                texture_query.height
+                texture_query.height,
             ),
             active: true,
             texture_default,
@@ -40,7 +48,7 @@ impl<'a> Button<'a> {
 
     fn get_state(&self, mouse_state: MouseState) -> ButtonState {
         let mouse_pos = Point::new(mouse_state.x(), mouse_state.y());
-        if self.rect.contains_point(mouse_pos) {
+        if self.collision_rect.contains_point(mouse_pos) {
             if mouse_state.is_mouse_button_pressed(MouseButton::Left) {
                 return ButtonState::Pressed;
             }
@@ -56,13 +64,13 @@ impl<'a> Button<'a> {
                 ButtonState::Hover => &self.texture_hover,
                 ButtonState::Pressed => &self.texture_pressed,
             };
-            canvas.copy(tex, None, self.rect)?;
+            canvas.copy(tex, None, self.render_rect)?;
         }
         Ok(())
     }
 
     pub fn is_hovering(&self, mouse_x: i32, mouse_y: i32) -> bool {
-        self.active && self.rect.contains_point(Point::new(mouse_x, mouse_y))
+        self.active && self.collision_rect.contains_point(Point::new(mouse_x, mouse_y))
     }
 }
 

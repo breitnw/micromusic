@@ -3,38 +3,16 @@ use sdl2::pixels::Color;
 use sdl2::render::Texture;
 use sdl2::render::TextureCreator;
 
+use sdl2::video::WindowContext;
 use serde::Deserialize;
 
 use hex::FromHex;
 
 #[derive(Deserialize)]
-pub struct PlayerData {
-    pub track_name: String,
-    pub track_artist: String,
-    pub track_album: String,
-    pub track_loved: bool,
-    pub track_length: f64,
-    pub track_artwork_data: Option<String>,
-
-    pub player_pos: f64,
-    pub player_state: PlayerState,
-}
-
-impl PlayerData {
-    /// Creates a clone of the player data, keeping artwork_data as "None" to save on resources.
-    pub fn clone_without_artwork(&self) -> PlayerData {
-        PlayerData {
-            track_artwork_data: None,
-
-            track_name: self.track_name.to_owned(),
-            track_artist: self.track_artist.to_owned(),
-            track_album: self.track_album.to_owned(),
-            track_loved: self.track_loved,
-            track_length: self.track_length,
-            player_pos: self.player_pos,
-            player_state: self.player_state.to_owned(),
-        }
-    }
+pub struct OsascriptResponse {
+    pub track_info: TrackInfo,
+    pub player_info: PlayerInfo,
+    pub track_artwork_data: String,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq)]
@@ -46,31 +24,57 @@ pub enum PlayerState {
     Rewinding,
 }
 
-#[allow(dead_code)]
-pub struct TrackData<'a> {
+/// Information about a track, including name, artist, album, loved, and length.
+#[derive(Deserialize, PartialEq)]
+pub struct TrackInfo {
     name: String,
     artist: String,
     album: String,
     loved: bool,
+    length: f64,
+}
+impl TrackInfo {
+    pub fn name(&self) -> &str { return &self.name }
+    pub fn artist(&self) -> &str { return &self.artist }
+    pub fn album(&self) -> &str { return &self.album }
+    pub fn loved(&self) -> bool { return self.loved }
+    pub fn length(&self) -> f64 { self.length }
+}
+
+/// Information about the player itself, including the player position (time elapsed in current song) and state.
+#[derive(Deserialize)]
+pub struct PlayerInfo {
+    pos: f64,
+    state: PlayerState,
+}
+impl PlayerInfo {
+    pub fn pos(&self) -> f64 { return self.pos }
+    pub fn state(&self) -> PlayerState { return self.state }
+}
+
+/// Computation-heavy texture resources for a track, including a description and artwork texture. Should only be created when a track
+/// is first loaded.
+#[allow(dead_code)]
+pub struct TrackResources<'a> {
     info_texture: Texture<'a>,
     artwork_texture: Texture<'a>,
 }
 
-// TODO: not necessary to create a new TrackData every time data is received, only when song changes
 #[allow(dead_code)]
-impl<'a> TrackData<'a> {
+impl<'a> TrackResources<'a> {
     // TODO: find a better way to determine foreground and background color for the texture than passing them as parameters to this function
-    pub fn new<T: 'a>(data: &PlayerData, texture_creator: &'a TextureCreator<T>, info_foreground_color: Color, info_background_color: Color) -> Result<TrackData<'a>, Box<dyn std::error::Error>> {
+    pub fn new<T: 'a>(data: &OsascriptResponse, texture_creator: &'a TextureCreator<T>) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
         //Create a texture from the album info
+        let track_info = &data.track_info;
         let info_texture = crate::engine::text_to_texture(
-            &format!("{} - {} - {}", data.track_artist, data.track_name, data.track_album),
+            &format!("{} - {} - {}", track_info.artist, track_info.name, track_info.album),
             &texture_creator,
-            info_foreground_color,
-            info_background_color
+            Color::RGB(255, 255, 255),
+            Color::RGB(0, 0, 0),
         );
 
         // Load the raw bytes for the album artwork
-        let raw_artwork_data: &str = &data.track_artwork_data.as_ref().ok_or("Artwork data must not be None")?;
+        let raw_artwork_data: &str = &data.track_artwork_data;
         let bytes = Vec::from_hex(&raw_artwork_data[8..raw_artwork_data.len() - 2])?;
 
         // Use linear filtering when creating the texture 
@@ -82,11 +86,7 @@ impl<'a> TrackData<'a> {
         // Reset filtering to nearest
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
 
-        Ok(TrackData {
-            name: data.track_name.to_owned(),
-            artist: data.track_artist.to_owned(),
-            album: data.track_album.to_owned(),
-            loved: data.track_loved,
+        Ok(TrackResources {
             info_texture,
             artwork_texture
         })
@@ -94,9 +94,31 @@ impl<'a> TrackData<'a> {
 
     pub fn info_texture(&self) -> &Texture { return &self.info_texture }
     pub fn artwork_texture(&self) -> &Texture { return &self.artwork_texture }
+}
 
-    pub fn name(&self) -> &String { return &self.name }
-    pub fn artist(&self) -> &String { return &self.artist }
-    pub fn album(&self) -> &String { return &self.album }
-    pub fn loved(&self) -> bool { return self.loved }
+/// A collection of resources representing all of the data received in and parsed from the original OsascriptResponse.
+pub struct NowPlayingResourceCollection<'a> {
+    pub player_info: PlayerInfo,
+    pub track_info: TrackInfo,
+    pub track_resources: TrackResources<'a>,
+}
+
+impl<'a> NowPlayingResourceCollection<'a> {
+    pub fn build(response: OsascriptResponse, texture_creator: &'a TextureCreator<WindowContext>) -> NowPlayingResourceCollection<'a> {
+
+        let track_resources = TrackResources::new(&response, texture_creator).unwrap();
+        NowPlayingResourceCollection {
+            player_info: response.player_info,
+            track_info: response.track_info,
+            track_resources,
+        }
+    }
+    pub fn update(&mut self, response: OsascriptResponse, texture_creator: &'a TextureCreator<WindowContext>) {
+        // Determine whether track resources need to be recreated by comparing old player data with new player data
+        if self.track_info != response.track_info {
+            self.track_resources = TrackResources::new(&response, texture_creator).unwrap();
+            self.track_info = response.track_info;
+        }
+        self.player_info = response.player_info;
+    }
 }

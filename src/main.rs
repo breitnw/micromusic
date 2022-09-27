@@ -1,6 +1,5 @@
 
 // FRONT BURNER
-// TODO: Buttons for skipping forward/back, play/pause, favoriting tracks
 // TODO: Automatically get text colors based on image / dark or light theme
 // TODO: Remember window position on close
 
@@ -10,16 +9,12 @@
 // TODO: Fix crash when clicking heart button while nothing's playing
 
 // FIXES
-// TODO: Clickable area on buttons is slightly smaller than highlighted area, fix this by appending slightly larger rects to 'sub' vec
-// TODO: Flickering when drag begins (use hit test event instead of window moved?) and with trackpad
-// TODO: Avoid making a new texture every update
 // TODO: Title clipping on tracks with short names
 // TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 
 // BACK BURNER
 // TODO: Make window resizable
 // TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
-// TODO: Make a third now playing struct for basic track data, embed it in the PlayerData struct, and figure out how to deserialize it
 // TODO: Only re-render info text every frame, not album art
 
 
@@ -42,11 +37,13 @@ use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTe
 use std::ffi::c_void;
 
 mod player_data;
-use player_data::{PlayerData, TrackData, PlayerState};
+use player_data::PlayerState;
 mod osascript_requests;
 use osascript_requests::JXACommand;
 mod engine;
 use engine::Button;
+
+use crate::player_data::NowPlayingResourceCollection;
 
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
@@ -156,75 +153,74 @@ fn main() {
     
 
     // State variables for the rendering loop
-    let mut player_and_track_data: Option<(TrackData, PlayerData)> = None;
+    let mut now_playing_resources: Option<NowPlayingResourceCollection> = None;
     let mut last_snapshot_time = Instant::now();
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
 
-    // Color variables
-    let info_background_color = Color::RGB(0, 0, 0);
-    let info_foreground_color = Color::RGB(255, 255, 255);
-
-    // A timer used to tell whether the window is currently being moved, decremented every frame
-    // Necessary because WindowEvent::Moved is only sent every three frames
-    let mut move_detection_timer = 0;
-
+    // A boolean that specifies whether the user is currently dragging the window. Set when a window drag event occurs,
+    // reset when the mouse button is released
+    let mut window_interaction_in_progress = false;
 
     // A map of all of the buttons on the screen
     // TODO: Probably use a macro or something instead of this gross hashmap
     // TODO: Make a simpler function for constructing buttons
-    let mut buttons: HashMap<&'static str, Button> = HashMap::from([
-        ("heart_empty", Button::new( 5, 5,
-            &icon_textures_default["heart_empty.png"],
-            &icon_textures_hover["heart_empty.png"],
-            &icon_textures_hover["heart_empty.png"],
-        )),
-        ("heart_filled", Button::new( 5, 5,
-            &icon_textures_default["heart_filled.png"],
-            &icon_textures_hover["heart_filled.png"],
-            &icon_textures_hover["heart_filled.png"],
-        )),
-        ("minimize", Button::new( ARTWORK_SIZE as i32 - 30, 5,
-            &icon_textures_default["minimize.png"],
-            &icon_textures_hover["minimize.png"],
-            &icon_textures_hover["minimize.png"],
-        )),
-        ("close", Button::new( ARTWORK_SIZE as i32 - 16, 5,
-            &icon_textures_default["close.png"],
-            &icon_textures_hover["close.png"],
-            &icon_textures_hover["close.png"],
-        )),
-        ("pause", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 - 20,
-            &icon_textures_default["pause.png"],
-            &icon_textures_hover["pause.png"],
-            &icon_textures_hover["pause.png"],
-        )),
-        ("play", Button::new( ARTWORK_SIZE as i32 / 2 - 5, ARTWORK_SIZE as i32 - 20,
-            &icon_textures_default["play.png"],
-            &icon_textures_hover["play.png"],
-            &icon_textures_hover["play.png"],
-        )),
-        ("next_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 18, ARTWORK_SIZE as i32 - 20,
-            &icon_textures_default["next_track.png"],
-            &icon_textures_hover["next_track.png"],
-            &icon_textures_hover["next_track.png"],
-        )),
-        ("back_track", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 18, ARTWORK_SIZE as i32 - 20,
-            &icon_textures_default["back_track.png"],
-            &icon_textures_hover["back_track.png"],
-            &icon_textures_hover["back_track.png"],
-        )),
-        // ("loop", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 44, ARTWORK_SIZE as i32 - 20,
-        //     &icon_textures_default["loop.png"],
-        //     &icon_textures_hover["loop.png"],
-        //     &icon_textures_hover["loop.png"],
-        // )),
-        // ("shuffle", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 44, ARTWORK_SIZE as i32 - 20,
-        //     &icon_textures_default["shuffle.png"],
-        //     &icon_textures_hover["shuffle.png"],
-        //     &icon_textures_hover["shuffle.png"],
-        // )),
-    ]);
+    let mut buttons: HashMap<&'static str, Button> = {
+        const A_SIZE: i32 = ARTWORK_SIZE as i32;
+        HashMap::from([
+            ("heart_empty", Button::new( 5, 5,
+                &icon_textures_default["heart_empty.png"],
+                &icon_textures_hover["heart_empty.png"],
+                &icon_textures_hover["heart_empty.png"],
+            )),
+            ("heart_filled", Button::new( 5, 5,
+                &icon_textures_default["heart_filled.png"],
+                &icon_textures_hover["heart_filled.png"],
+                &icon_textures_hover["heart_filled.png"],
+            )),
+            ("minimize", Button::new( A_SIZE - 30, 5,
+                &icon_textures_default["minimize.png"],
+                &icon_textures_hover["minimize.png"],
+                &icon_textures_hover["minimize.png"],
+            )),
+            ("close", Button::new( A_SIZE - 16, 5,
+                &icon_textures_default["close.png"],
+                &icon_textures_hover["close.png"],
+                &icon_textures_hover["close.png"],
+            )),
+            ("pause", Button::new( A_SIZE / 2 - 5, A_SIZE - 20,
+                &icon_textures_default["pause.png"],
+                &icon_textures_hover["pause.png"],
+                &icon_textures_hover["pause.png"],
+            )),
+            ("play", Button::new( A_SIZE / 2 - 5, A_SIZE - 20,
+                &icon_textures_default["play.png"],
+                &icon_textures_hover["play.png"],
+                &icon_textures_hover["play.png"],
+            )),
+            ("next_track", Button::new( A_SIZE / 2 - 6 + 18, A_SIZE - 20,
+                &icon_textures_default["next_track.png"],
+                &icon_textures_hover["next_track.png"],
+                &icon_textures_hover["next_track.png"],
+            )),
+            ("back_track", Button::new( A_SIZE / 2 - 6 - 18, A_SIZE - 20,
+                &icon_textures_default["back_track.png"],
+                &icon_textures_hover["back_track.png"],
+                &icon_textures_hover["back_track.png"],
+            )),
+            // ("loop", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 44, ARTWORK_SIZE as i32 - 20,
+            //     &icon_textures_default["loop.png"],
+            //     &icon_textures_hover["loop.png"],
+            //     &icon_textures_hover["loop.png"],
+            // )),
+            // ("shuffle", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 44, ARTWORK_SIZE as i32 - 20,
+            //     &icon_textures_default["shuffle.png"],
+            //     &icon_textures_hover["shuffle.png"],
+            //     &icon_textures_hover["shuffle.png"],
+            // )),
+        ])
+    };
+
 
     // This code will run every frame
     'running: loop {
@@ -232,9 +228,6 @@ fn main() {
         // Mouse state
         let mouse_state = engine::mouse::MouseState::get_relative_state(&event_pump, canvas.window());
         let window_input_focus = &canvas.window().window_flags() & 512 == 512; // input focus: 512, mouse focus: 1024
-
-        // Reduce the move detection timer by 1
-        move_detection_timer = 0.max(move_detection_timer - 1);
         
         // Iterate through the input events
         for event in event_pump.poll_iter() {
@@ -272,7 +265,6 @@ fn main() {
                 Event::Window { win_event, .. } => {
                     match win_event {
                         WindowEvent::Moved {..} => {
-                            move_detection_timer = 3;
                             // Update the canvas scale in case the user drags the window to a different monitor
                             engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
                         },
@@ -282,21 +274,34 @@ fn main() {
                 _ => {}
             }
         }
+
+        // Reset drag_in_progress if the mouse button was just lifted
+        if mouse_state.is_mouse_button_pressed(sdl2::mouse::MouseButton::Left) {
+            if window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) {
+                window_interaction_in_progress = true;
+            }
+        } else {
+            window_interaction_in_progress = false;
+        }
         
         // If the channel has new data in it, update the player and track data on this thread
-        if let Ok(pl_data) = rx.try_recv() {
-            player_and_track_data = match pl_data {
-                Some(pl_data_unwrapped) => { 
-                    // Since it includes the filled image data, this clone is probably pretty significant and may be causing the lag
-                    Some((TrackData::new(&pl_data_unwrapped, &texture_creator, info_foreground_color, info_background_color).unwrap(), pl_data_unwrapped))
+        if let Ok(response) = rx.try_recv() {
+            if let Some(u_response) = response {
+                if let Some(u_np_resources) = now_playing_resources.as_mut() {
+                    u_np_resources.update(u_response, &texture_creator);
+                } else {
+                    now_playing_resources = Some(NowPlayingResourceCollection::build(u_response, &texture_creator));
                 }
-                None => None
+                
+            } else { 
+                now_playing_resources = None;
             };
+            // Update the last snapshot time, used to determine the player position when rendering
             last_snapshot_time = Instant::now();
         }
 
         // Clear the canvas for drawing
-        canvas.set_draw_color(info_background_color);
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.set_blend_mode(BlendMode::None);
         canvas.clear();
 
@@ -306,12 +311,12 @@ fn main() {
         }
 
         // If the player data has been received, run this code
-        if let Some((u_track_data, u_player_data)) = &player_and_track_data {
-            let info_tex = u_track_data.info_texture();
+        if let Some(u_np_resources) = &now_playing_resources {
+            let info_tex = u_np_resources.track_resources.info_texture();
             let info_qry = info_tex.query();
-            let art_tex = u_track_data.artwork_texture();
+            let art_tex = u_np_resources.track_resources.artwork_texture();
             
-            if u_player_data.player_state == PlayerState::Playing {
+            if u_np_resources.player_info.state() == PlayerState::Playing {
                 info_scroll_pos -= 1; 
                 info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
             }
@@ -336,19 +341,19 @@ fn main() {
 
             //Draw an overlay if the user is hovering over the window
             //TODO: find a way to avoid nesting this if statement inside the last
-            if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || move_detection_timer > 0 {
+            if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || window_interaction_in_progress {
                 // Darken the cover art
                 canvas.set_blend_mode(BlendMode::Mod);
-                canvas.set_draw_color(Color::RGB( 150, 150, 150));
+                canvas.set_draw_color(Color::RGB( 120, 120, 120));
                 canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
 
                 // Draw a progress bar
                 canvas.set_blend_mode(BlendMode::Add);
                 canvas.set_draw_color(Color::RGB(100, 100, 100));
 
-                let percent_elapsed = (u_player_data.player_pos 
-                    + if u_player_data.player_state == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
-                    / u_player_data.track_length;
+                let percent_elapsed = (u_np_resources.player_info.pos() 
+                    + if u_np_resources.player_info.state() == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
+                    / u_np_resources.track_info.length();
 
                 canvas.draw_line(
                     Point::new(0, ARTWORK_SIZE as i32 - 1), 
@@ -365,12 +370,16 @@ fn main() {
                 buttons.get_mut("minimize").unwrap().active = true;
                 buttons.get_mut("close").unwrap().active = true;   
 
-                buttons.get_mut("heart_empty").unwrap().active = !u_track_data.loved();
-                buttons.get_mut("heart_filled").unwrap().active = u_track_data.loved();
+                buttons.get_mut("heart_empty").unwrap().active = !u_np_resources.track_info.loved();
+                buttons.get_mut("heart_filled").unwrap().active = u_np_resources.track_info.loved();
 
-                buttons.get_mut("play").unwrap().active = u_player_data.player_state != PlayerState::Playing;
-                buttons.get_mut("pause").unwrap().active = u_player_data.player_state == PlayerState::Playing;
+                buttons.get_mut("play").unwrap().active = u_np_resources.player_info.state() != PlayerState::Playing;
+                buttons.get_mut("pause").unwrap().active = u_np_resources.player_info.state() == PlayerState::Playing;
             }
+        } else {
+            // TODO: This should ideally be unnecessary
+            buttons.get_mut("minimize").unwrap().active = true;
+            buttons.get_mut("close").unwrap().active = true;
         }
 
         // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button
@@ -379,7 +388,7 @@ fn main() {
         for button in buttons.values() { 
             button.render(&mut canvas, mouse_state).unwrap(); 
             if button.active {
-                sub.push(raw_heap_rect(button.rect.x, button.rect.y, button.rect.w, button.rect.h));
+                sub.push(raw_heap_rect(button.collision_rect.x, button.collision_rect.y, button.collision_rect.w, button.collision_rect.h));
             }
         }
         hit_test_data.sub_len = sub.len() as c_int;

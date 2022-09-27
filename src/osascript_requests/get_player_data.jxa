@@ -12,13 +12,16 @@ for (let i = 0; i < player_state.length; i++) {
 player_state = player_state.join("");
 
 return {
-    track_name: track.name(),
-    track_artist: track.artist(),
-    track_album: track.album(),
-    track_loved: track.loved(),
-    track_length: track.finish(),
+    track_info: {
+        name: track.name(),
+        artist: track.artist(),
+        album: track.album(),
+        loved: track.loved(),
+        length: track.finish(),
+    },
+    player_info: {
+        pos: app.playerPosition(),
+        state: player_state,
+    },
     track_artwork_data: artwork.rawData(),
-
-    player_pos: app.playerPosition(),
-    player_state: player_state,
 }

@@ -5,34 +5,32 @@ use std::time::Duration;
 use std::sync::mpsc::Sender;
 use std::thread;
 
-use crate::player_data::PlayerData;
+use crate::player_data::OsascriptResponse;
 
-type PlayerDataSender = Sender<Option<PlayerData>>;
+type PlayerDataSender = Sender<Option<OsascriptResponse>>;
 
-/// Gathers information on the current track and sends it to the main thread once complete.
-fn send_player_data(tx: PlayerDataSender) -> Option<PlayerData> {
-    // let err_test: RawTrackData = script.execute().unwrap();
-    const PLAYER_INFO_SCRIPT: &str = include_str!("get_player_data.jxa");
+/// Returns information on the state of the music player
+fn get_player_data() -> Option<OsascriptResponse> {
+    const PLAYER_INFO_SCRIPT: &'static str = include_str!("get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
+    script.execute().ok()
+}
 
-    match script.execute() {
-        Ok::<PlayerData, _>(player_data) => {
-            let cloned_pl_data = player_data.clone_without_artwork();
-            tx.send(Some(player_data)).expect("Couldn't send player data through the channel");
-            return Some(cloned_pl_data)
-        }
-        Err(e) => {
-            tx.send(None).expect("Couldn't send player data through the channel");
-            println!("Error receiving data from Apple Music: {e}");
-            return None
-        }
+/// Sends information about the music player's state to the main thread
+fn send_player_data(data: Option<OsascriptResponse>, tx: PlayerDataSender) {
+    if data.is_none() {
+        println!("Error receiving data from Apple Music");
     }
+    tx.send(data).expect("Couldn't send player data through the channel");
 }
 
 
 /// Creates a new thread to gather information on the current track and send it to the main thread once complete.
 pub fn send_player_data_async(tx: PlayerDataSender) {
-    thread::spawn(move || { send_player_data(tx) });
+    thread::spawn(move || { 
+        let data = get_player_data();
+        send_player_data(data, tx);
+    });
 }
 
 
@@ -41,9 +39,11 @@ pub fn send_player_data_loop(tx: PlayerDataSender) {
     thread::spawn(move || {
         let mut time_remaining = 3.;
         loop {
-            if let Some(player_data) = send_player_data(tx.clone()) {
-                time_remaining = player_data.track_length - player_data.player_pos;
+            let data = get_player_data();
+            if let Some(response) = data.as_ref() {
+                time_remaining = response.track_info.length() - response.player_info.pos();
             }
+            send_player_data(data, tx.clone());
             // If the track is almost over, don't sleep the full duration so the info can be updated immediately after it ends
             thread::sleep(Duration::from_secs_f64(time_remaining.min(3.0).max(0.2)));
         }
