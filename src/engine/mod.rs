@@ -1,8 +1,7 @@
-
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
-use sdl2::rect::{Rect, Point};
-use sdl2::render::{RenderTarget, Texture, Canvas, TextureCreator};
+use sdl2::rect::{Point, Rect};
+use sdl2::render::{Canvas, RenderTarget, Texture, TextureCreator};
 use sdl2_unifont::renderer::SurfaceRenderer;
 
 pub mod mouse;
@@ -25,20 +24,23 @@ pub struct Button<'a> {
 }
 
 impl<'a> Button<'a> {
-    pub fn new(x: i32, y: i32, texture_default: &'a Texture<'a>, texture_hover: &'a Texture<'a>, texture_pressed: &'a Texture<'a>) -> Button<'a> {
+    pub fn new(
+        x: i32,
+        y: i32,
+        texture_default: &'a Texture<'a>,
+        texture_hover: &'a Texture<'a>,
+        texture_pressed: &'a Texture<'a>,
+    ) -> Button<'a> {
         let texture_query = texture_default.query();
         const BUTTON_COLLISION_MARGIN: u8 = 2;
         Button {
             collision_rect: Rect::new(
-                x - BUTTON_COLLISION_MARGIN as i32, 
-                y - BUTTON_COLLISION_MARGIN as i32, 
+                x - BUTTON_COLLISION_MARGIN as i32,
+                y - BUTTON_COLLISION_MARGIN as i32,
                 texture_query.width + BUTTON_COLLISION_MARGIN as u32 * 2,
                 texture_query.height + BUTTON_COLLISION_MARGIN as u32 * 2,
             ),
-            render_rect: Rect::new(x, y, 
-                texture_query.width,
-                texture_query.height,
-            ),
+            render_rect: Rect::new(x, y, texture_query.width, texture_query.height),
             active: true,
             texture_default,
             texture_hover,
@@ -56,8 +58,12 @@ impl<'a> Button<'a> {
         }
         return ButtonState::Default;
     }
-    
-    pub fn render<T: sdl2::render::RenderTarget>(&self, canvas: &mut Canvas<T>, mouse_state: MouseState) -> std::result::Result<(), String> {
+
+    pub fn render<T: sdl2::render::RenderTarget>(
+        &self,
+        canvas: &mut Canvas<T>,
+        mouse_state: MouseState,
+    ) -> std::result::Result<(), String> {
         if self.active {
             let tex = match self.get_state(mouse_state) {
                 ButtonState::Default => &self.texture_default,
@@ -70,27 +76,45 @@ impl<'a> Button<'a> {
     }
 
     pub fn is_hovering(&self, mouse_x: i32, mouse_y: i32) -> bool {
-        self.active && self.collision_rect.contains_point(Point::new(mouse_x, mouse_y))
+        self.active
+            && self
+                .collision_rect
+                .contains_point(Point::new(mouse_x, mouse_y))
     }
 }
 
-
-/// Scale the window so it appears the same on high-DPI displays, works fine for now 
+/// Scale the window so it appears the same on high-DPI displays, works fine for now
 /// Based on https://discourse.libsdl.org/t/high-dpi-mode/34411/2
-pub fn update_canvas_scale<T: RenderTarget>(canvas: &mut Canvas<T>, window_width: u32, window_height: u32) {
+pub fn update_canvas_scale<T: RenderTarget>(
+    canvas: &mut Canvas<T>,
+    window_width: u32,
+    window_height: u32,
+) {
     let (w, h) = canvas.output_size().unwrap();
-    canvas.set_scale((w / window_width) as f32, (h / window_height) as f32).unwrap();
+    canvas
+        .set_scale((w / window_width) as f32, (h / window_height) as f32)
+        .unwrap();
 }
 
 /// Converts a string to a texture
-pub fn text_to_texture<'a, T>(text: &str, texture_creator: &'a TextureCreator<T>, foreground_color: Color, background_color: Color) -> Texture<'a> {
+pub fn text_to_texture<'a, T>(
+    text: &str,
+    texture_creator: &'a TextureCreator<T>,
+    foreground_color: Color,
+    background_color: Color,
+) -> Texture<'a> {
     let text_renderer = SurfaceRenderer::new(foreground_color, background_color);
     let text_surface = text_renderer.draw(text).unwrap();
     text_surface.as_texture(texture_creator).unwrap()
 }
 
 /// Copies a texture to a canvas without scaling it
-pub fn copy_unscaled<T: RenderTarget>(texture: &Texture, x: i32, y: i32, canvas: &mut Canvas<T>) -> std::result::Result<(), String> {
+pub fn copy_unscaled<T: RenderTarget>(
+    texture: &Texture,
+    x: i32,
+    y: i32,
+    canvas: &mut Canvas<T>,
+) -> std::result::Result<(), String> {
     let query = texture.query();
     canvas.copy(texture, None, Rect::new(x, y, query.width, query.height))?;
     Ok(())

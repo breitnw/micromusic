@@ -34,11 +34,21 @@ pub struct TrackInfo {
     length: f64,
 }
 impl TrackInfo {
-    pub fn name(&self) -> &str { return &self.name }
-    pub fn artist(&self) -> &str { return &self.artist }
-    pub fn album(&self) -> &str { return &self.album }
-    pub fn loved(&self) -> bool { return self.loved }
-    pub fn length(&self) -> f64 { self.length }
+    pub fn name(&self) -> &str {
+        return &self.name;
+    }
+    pub fn artist(&self) -> &str {
+        return &self.artist;
+    }
+    pub fn album(&self) -> &str {
+        return &self.album;
+    }
+    pub fn loved(&self) -> bool {
+        return self.loved;
+    }
+    pub fn length(&self) -> f64 {
+        self.length
+    }
 }
 
 /// Information about the player itself, including the player position (time elapsed in current song) and state.
@@ -48,8 +58,12 @@ pub struct PlayerInfo {
     state: PlayerState,
 }
 impl PlayerInfo {
-    pub fn pos(&self) -> f64 { return self.pos }
-    pub fn state(&self) -> PlayerState { return self.state }
+    pub fn pos(&self) -> f64 {
+        return self.pos;
+    }
+    pub fn state(&self) -> PlayerState {
+        return self.state;
+    }
 }
 
 /// Computation-heavy texture resources for a track, including a description and artwork texture. Should only be created when a track
@@ -63,11 +77,17 @@ pub struct TrackResources<'a> {
 #[allow(dead_code)]
 impl<'a> TrackResources<'a> {
     // TODO: find a better way to determine foreground and background color for the texture than passing them as parameters to this function
-    pub fn new<T: 'a>(data: &OsascriptResponse, texture_creator: &'a TextureCreator<T>) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
+    pub fn new<T: 'a>(
+        data: &OsascriptResponse,
+        texture_creator: &'a TextureCreator<T>,
+    ) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
         //Create a texture from the album info
         let track_info = &data.track_info;
         let info_texture = crate::engine::text_to_texture(
-            &format!("{} - {} - {}", track_info.artist, track_info.name, track_info.album),
+            &format!(
+                "{} - {} - {}",
+                track_info.artist, track_info.name, track_info.album
+            ),
             &texture_creator,
             Color::RGB(255, 255, 255),
             Color::RGB(0, 0, 0),
@@ -77,23 +97,27 @@ impl<'a> TrackResources<'a> {
         let raw_artwork_data: &str = &data.track_artwork_data;
         let bytes = Vec::from_hex(&raw_artwork_data[8..raw_artwork_data.len() - 2])?;
 
-        // Use linear filtering when creating the texture 
+        // Use linear filtering when creating the texture
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
 
         // Use the texture creator to create the texture
         let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
-        
+
         // Reset filtering to nearest
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
 
         Ok(TrackResources {
             info_texture,
-            artwork_texture
+            artwork_texture,
         })
     }
 
-    pub fn info_texture(&self) -> &Texture { return &self.info_texture }
-    pub fn artwork_texture(&self) -> &Texture { return &self.artwork_texture }
+    pub fn info_texture(&self) -> &Texture {
+        return &self.info_texture;
+    }
+    pub fn artwork_texture(&self) -> &Texture {
+        return &self.artwork_texture;
+    }
 }
 
 /// A collection of resources representing all of the data received in and parsed from the original OsascriptResponse.
@@ -104,8 +128,10 @@ pub struct NowPlayingResourceCollection<'a> {
 }
 
 impl<'a> NowPlayingResourceCollection<'a> {
-    pub fn build(response: OsascriptResponse, texture_creator: &'a TextureCreator<WindowContext>) -> NowPlayingResourceCollection<'a> {
-
+    pub fn build(
+        response: OsascriptResponse,
+        texture_creator: &'a TextureCreator<WindowContext>,
+    ) -> NowPlayingResourceCollection<'a> {
         let track_resources = TrackResources::new(&response, texture_creator).unwrap();
         NowPlayingResourceCollection {
             player_info: response.player_info,
@@ -113,7 +139,11 @@ impl<'a> NowPlayingResourceCollection<'a> {
             track_resources,
         }
     }
-    pub fn update(&mut self, response: OsascriptResponse, texture_creator: &'a TextureCreator<WindowContext>) {
+    pub fn update(
+        &mut self,
+        response: OsascriptResponse,
+        texture_creator: &'a TextureCreator<WindowContext>,
+    ) {
         // Determine whether track resources need to be recreated by comparing old player data with new player data
         if self.track_info != response.track_info {
             self.track_resources = TrackResources::new(&response, texture_creator).unwrap();

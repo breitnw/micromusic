@@ -1,9 +1,8 @@
-
 use osascript;
 
-use std::time::Duration;
 use std::sync::mpsc::Sender;
 use std::thread;
+use std::time::Duration;
 
 use crate::player_data::OsascriptResponse;
 
@@ -21,18 +20,17 @@ fn send_player_data(data: Option<OsascriptResponse>, tx: PlayerDataSender) {
     if data.is_none() {
         println!("Error receiving data from Apple Music");
     }
-    tx.send(data).expect("Couldn't send player data through the channel");
+    tx.send(data)
+        .expect("Couldn't send player data through the channel");
 }
-
 
 /// Creates a new thread to gather information on the current track and send it to the main thread once complete.
 pub fn send_player_data_async(tx: PlayerDataSender) {
-    thread::spawn(move || { 
+    thread::spawn(move || {
         let data = get_player_data();
         send_player_data(data, tx);
     });
 }
-
 
 /// Periodically runs a JXA script to gather information on the current track and send it to the main thread.
 pub fn send_player_data_loop(tx: PlayerDataSender) {
@@ -68,19 +66,20 @@ impl JXACommand {
             JXACommand::PreviousTrack => "Application('Music').previousTrack()",
             JXACommand::BackTrack => "Application('Music').backTrack()",
             JXACommand::Love => "Application('Music').currentTrack.loved = true",
-            JXACommand::Unlove => "Application('Music').currentTrack.loved = false"
+            JXACommand::Unlove => "Application('Music').currentTrack.loved = false",
         }
     }
 }
 
-
 /// Can run different JXA commands depending on the "command" parameter
 /// * `tx` - An MPSC sender to optionally update the player data on the main thread after the command has completed. Set it to None to disable this behavior.
 pub fn run_command<T>(command: JXACommand, tx: T)
-where T: Into<Option<PlayerDataSender>> {
+where
+    T: Into<Option<PlayerDataSender>>,
+{
     let tx = tx.into();
     let script = osascript::JavaScript::new(command.as_str());
-    thread::spawn( move || {
+    thread::spawn(move || {
         let _: () = script.execute().unwrap();
         if let Some(tx) = tx {
             send_player_data_async(tx);
