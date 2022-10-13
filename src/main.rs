@@ -79,7 +79,7 @@ fn main() {
 
     
     // Make the window draggable
-    fn raw_heap_rect(x: c_int, y: c_int, w: c_int, h: c_int) -> *mut SDL_Rect {
+    fn raw_heap_rect(x: c_int, y: c_int, w: c_int, h: c_int) -> *const SDL_Rect {
         Box::into_raw(Box::new(SDL_Rect { x, y, w, h } ))
     }
 
@@ -88,9 +88,9 @@ fn main() {
     
     #[repr(C)]
     struct HitTestData {
-        add: *const *mut SDL_Rect,
+        add: *const *const SDL_Rect,
         add_len: c_int,
-        sub: *const *mut SDL_Rect,
+        sub: *const *const SDL_Rect,
         sub_len: c_int
     }
     let mut hit_test_data = HitTestData {
@@ -128,7 +128,6 @@ fn main() {
     canvas.clear();
     canvas.present();
 
-
     // Create the icon textures and load them into a dictionary
     // TODO: Maybe move to engine
     // TODO: Only load files with .png extension (not .DS_Store if it exists)
@@ -150,7 +149,6 @@ fn main() {
     const ICON_COLOR_MOD_HOVER: u8 = 200;
     let icon_textures_default = load_icons(ICON_COLOR_MOD_DEFAULT, BlendMode::Add, &texture_creator);
     let icon_textures_hover = load_icons(ICON_COLOR_MOD_HOVER, BlendMode::Add, &texture_creator);
-    
 
     // State variables for the rendering loop
     let mut now_playing_resources: Option<NowPlayingResourceCollection> = None;
@@ -162,65 +160,30 @@ fn main() {
     // reset when the mouse button is released
     let mut window_interaction_in_progress = false;
 
-    // A map of all of the buttons on the screen
-    // TODO: Probably use a macro or something instead of this gross hashmap
-    // TODO: Make a simpler function for constructing buttons
-    let mut buttons: HashMap<&'static str, Button> = {
+    // Create a map of all of the buttons on the screen
+    let button_data = {
         const A_SIZE: i32 = ARTWORK_SIZE as i32;
-        HashMap::from([
-            ("heart_empty", Button::new( 5, 5,
-                &icon_textures_default["heart_empty.png"],
-                &icon_textures_hover["heart_empty.png"],
-                &icon_textures_hover["heart_empty.png"],
-            )),
-            ("heart_filled", Button::new( 5, 5,
-                &icon_textures_default["heart_filled.png"],
-                &icon_textures_hover["heart_filled.png"],
-                &icon_textures_hover["heart_filled.png"],
-            )),
-            ("minimize", Button::new( A_SIZE - 30, 5,
-                &icon_textures_default["minimize.png"],
-                &icon_textures_hover["minimize.png"],
-                &icon_textures_hover["minimize.png"],
-            )),
-            ("close", Button::new( A_SIZE - 16, 5,
-                &icon_textures_default["close.png"],
-                &icon_textures_hover["close.png"],
-                &icon_textures_hover["close.png"],
-            )),
-            ("pause", Button::new( A_SIZE / 2 - 5, A_SIZE - 20,
-                &icon_textures_default["pause.png"],
-                &icon_textures_hover["pause.png"],
-                &icon_textures_hover["pause.png"],
-            )),
-            ("play", Button::new( A_SIZE / 2 - 5, A_SIZE - 20,
-                &icon_textures_default["play.png"],
-                &icon_textures_hover["play.png"],
-                &icon_textures_hover["play.png"],
-            )),
-            ("next_track", Button::new( A_SIZE / 2 - 6 + 18, A_SIZE - 20,
-                &icon_textures_default["next_track.png"],
-                &icon_textures_hover["next_track.png"],
-                &icon_textures_hover["next_track.png"],
-            )),
-            ("back_track", Button::new( A_SIZE / 2 - 6 - 18, A_SIZE - 20,
-                &icon_textures_default["back_track.png"],
-                &icon_textures_hover["back_track.png"],
-                &icon_textures_hover["back_track.png"],
-            )),
-            // ("loop", Button::new( ARTWORK_SIZE as i32 / 2 - 6 + 44, ARTWORK_SIZE as i32 - 20,
-            //     &icon_textures_default["loop.png"],
-            //     &icon_textures_hover["loop.png"],
-            //     &icon_textures_hover["loop.png"],
-            // )),
-            // ("shuffle", Button::new( ARTWORK_SIZE as i32 / 2 - 6 - 44, ARTWORK_SIZE as i32 - 20,
-            //     &icon_textures_default["shuffle.png"],
-            //     &icon_textures_hover["shuffle.png"],
-            //     &icon_textures_hover["shuffle.png"],
-            // )),
-        ])
+        [
+            ("heart_empty", (5, 5)),
+            ("heart_filled", (5, 5)),
+            ("minimize", (A_SIZE - 30, 5)),
+            ("close", (A_SIZE - 16, 5)),
+            ("pause", (A_SIZE / 2 - 5, A_SIZE - 20)),
+            ("play", (A_SIZE / 2 - 5, A_SIZE - 20)),
+            ("next_track", (A_SIZE / 2 - 6 + 18, A_SIZE - 20)),
+            ("back_track", (A_SIZE / 2 - 6 - 18, A_SIZE - 20)),
+        ]
     };
-
+    let mut buttons: HashMap<&'static str, Button> = button_data.into_iter()
+        .map(|b| (b.0, {
+            let filename = String::from(b.0) + ".png";
+            Button::new(b.1.0, b.1.1, 
+                &icon_textures_default[&filename],
+                &icon_textures_hover[&filename],
+                &icon_textures_hover[&filename],
+            )
+        }))
+        .collect();
 
     // This code will run every frame
     'running: loop {
@@ -383,7 +346,6 @@ fn main() {
         }
 
         // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button
-        // TODO: Use global mouse state to prevent button sticking after going out of frame
         sub.clear();
         for button in buttons.values() { 
             button.render(&mut canvas, mouse_state).unwrap(); 

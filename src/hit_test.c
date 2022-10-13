@@ -5,14 +5,14 @@
 
 
 typedef struct HitTestData {
-    SDL_Rect ** add;
+    SDL_Rect** add;
     int add_len;
-    SDL_Rect ** sub;
+    SDL_Rect** sub;
     int sub_len;
 } HitTestData;
 
 
-SDL_HitTestResult hitTest(__attribute__((unused)) SDL_Window *window, const SDL_Point *pt, void *data) {
+SDL_HitTestResult hitTest(__attribute__((unused)) SDL_Window* window, const SDL_Point* pt, void* data) {
     
     HitTestData hit_test_data = *((HitTestData*) data);
 
