@@ -1,5 +1,5 @@
 # micromusic
-A tiny, lightweight miniplayer for Apple Music written in Rust with SDL2. Micromusic is minimalistic by design, with no text antialiasing or drop shadow, and just a few buttons. There's one line of text for the title, artist, and album, and it scrolls continuously. You can like/unlike, skip forward, skip backward, play/pause, and that's pretty much it. If that sounds fun to you, give it a try.
+A tiny, lightweight miniplayer for Apple Music written in Rust with SDL2. Micromusic is minimalistic by design, with no text antialiasing or title bar, and just a few buttons. There's one line of text for the title, artist, and album, and it scrolls continuously. You can like/unlike, skip forward, skip backward, play/pause, and that's pretty much it. If that sounds fun to you, give it a try.
 
 ![an animated GIF of micromusic in use](screenshots/skip.gif)
 
