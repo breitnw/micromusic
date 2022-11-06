@@ -15,15 +15,22 @@ pub struct ADOsascriptResponse {
     pub artwork_data: Option<String>,
 }
 
+/// A set of resources for displaying information about albums.
 pub struct AlbumResources<'a> {
-    // tracks: Vec<String>,
-    album: String,
-    album_artist: String,
+    base_resources: BaseAlbumResources,
     artwork: Texture<'a>
 }
 
-impl<'a> AlbumResources<'a> {
-    pub fn build<T>(response: ADOsascriptResponse, texture_creator: &'a TextureCreator<T>, artwork_cache_dir: &Path) -> Self {
+/// A subset of AlbumResources that doesn't contain a texture, allowing for it to be passed between threads.
+pub struct BaseAlbumResources {
+    // tracks: Vec<String>,
+    album: String,
+    album_artist: String,
+    artwork_file_path: String,
+}
+
+impl BaseAlbumResources {
+    pub fn build(response: ADOsascriptResponse, artwork_cache_dir: &Path) -> Self {
         let filename = format!(
             "{}.png", 
             // sea::hash64(format!("{}{}", &response.album_artist, &response.album).as_bytes())
@@ -36,26 +43,31 @@ impl<'a> AlbumResources<'a> {
             .unwrap()
             .to_owned();
         
-        let artwork = {
-            if let Some(artwork_data) = response.artwork_data {
-                crate::engine::raw_to_cached_image(
-                    &artwork_data,
-                    (100, 100), 
-                    &path,
-                ).unwrap();
-            }
-            texture_creator.load_texture(path).unwrap()  // Should never panic
-        }; 
+        if let Some(artwork_data) = response.artwork_data {
+            crate::engine::raw_to_cached_image(
+                &artwork_data,
+                (100, 100), 
+                &path,
+            ).unwrap();
+        }
 
         Self {
             // tracks: response.tracks,
             album: response.album,
             album_artist: response.album_artist,
+            artwork_file_path: path,
+        }
+    }
+
+    pub fn construct_artwork<'a, T>(self, texture_creator: &'a TextureCreator<T>) -> AlbumResources {
+        let artwork = texture_creator.load_texture(&self.artwork_file_path).unwrap();  // Should never panic
+        AlbumResources {
+            base_resources: self,
             artwork,
         }
     }
 
-    pub fn get_all_from_music<T>(texture_creator: &'a TextureCreator<T>) -> Vec<Self> {
+    pub fn get_all_from_music() -> Vec<Self> {
         // Create the cache directory at ~/Library/Caches/com.breitnw.micromusic/artwork/
         let project_dirs = ProjectDirs::from("com", "breitnw", "micromusic")
             .expect("Unable to get path to cache directory.");
@@ -74,18 +86,17 @@ impl<'a> AlbumResources<'a> {
         println!("Getting raw data from Apple Music...");
         let album_data = osascript_requests::get_album_data(album_cache);
 
-        println!("Building textures...");
-        let album_resources: Vec<AlbumResources> = album_data
+        println!("Building resources...");
+        let base_album_resources: Vec<BaseAlbumResources> = album_data
             .into_iter()
             .map(|response| 
-                AlbumResources::build(
-                    response, 
-                    &texture_creator, 
+                BaseAlbumResources::build(
+                    response,
                     artwork_cache_dir, 
                 ))
             .collect();
             
         println!("Done!");
-        album_resources
+        base_album_resources
     }
 }

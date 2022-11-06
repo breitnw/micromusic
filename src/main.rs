@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 
 use rust_embed::RustEmbed;
@@ -50,6 +50,7 @@ use osascript_requests::JXACommand;
 mod engine;
 use engine::Button;
 
+use crate::album_data::BaseAlbumResources;
 use crate::player_data::NowPlayingResourceCollection;
 
 
@@ -191,8 +192,15 @@ fn main() {
             )
         }))
         .collect();
-
-    let album_resources = AlbumResources::get_all_from_music(&texture_creator);
+    
+    // Spawn a thread to get all album resources from Apple Music
+    let mut album_resources: Option<Vec<AlbumResources>> = None;
+    let (ar_tx, ar_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let base_album_resources = BaseAlbumResources::get_all_from_music();
+        ar_tx.send(base_album_resources).unwrap();
+    });
+    
 
     // This code will run every frame
     'running: loop {
@@ -254,6 +262,15 @@ fn main() {
             }
         } else {
             window_interaction_in_progress = false;
+        }
+
+        // If the base album resources are done loading, create and save their artwork textures
+        if let Ok(response) = ar_rx.try_recv() {
+            album_resources = Some(
+                response.into_iter()
+                    .map(|r| r.construct_artwork(&texture_creator))
+                    .collect()
+            );
         }
         
         // If the channel has new data in it, update the player and track data on this thread
@@ -367,14 +384,15 @@ fn main() {
        
     
         //Draw a border
-        // canvas.set_blend_mode(BlendMode::Mod);
-        // canvas.set_draw_color(Color::RGB(200, 200, 200));
-        // canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
-        // canvas.set_blend_mode(BlendMode::Add);
-        // canvas.set_draw_color(Color::RGB(30, 30, 30));
-        // canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
+        canvas.set_blend_mode(BlendMode::Mod);
+        canvas.set_draw_color(Color::RGB(200, 200, 200));
+        canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
+        canvas.set_blend_mode(BlendMode::Add);
+        canvas.set_draw_color(Color::RGB(30, 30, 30));
+        canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
 
-        // dbg!(album_resources.len());
+        // Debug the length of the album resources array
+        if let Some(album_resources) = album_resources.as_deref() { dbg!(album_resources.len()); }
         
         //Present the canvas
         canvas.present();
