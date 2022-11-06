@@ -1,22 +1,24 @@
 use osascript;
+use serde::Serialize;
 
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use crate::player_data::OsascriptResponse;
+use crate::player_data::PDOsascriptResponse;
+use crate::album_data::ADOsascriptResponse;
 
-type PlayerDataSender = Sender<Option<OsascriptResponse>>;
+type PlayerDataSender = Sender<Option<PDOsascriptResponse>>;
 
 /// Returns information on the state of the music player
-fn get_player_data() -> Option<OsascriptResponse> {
-    const PLAYER_INFO_SCRIPT: &'static str = include_str!("get_player_data.jxa");
-    let script = osascript::JavaScript::new(PLAYER_INFO_SCRIPT);
+fn get_player_data() -> Option<PDOsascriptResponse> {
+    const PLAYER_DATA_SCRIPT: &'static str = include_str!("get_player_data.jxa");
+    let script = osascript::JavaScript::new(PLAYER_DATA_SCRIPT);
     script.execute().ok()
 }
 
 /// Sends information about the music player's state to the main thread
-fn send_player_data(data: Option<OsascriptResponse>, tx: PlayerDataSender) {
+fn send_player_data(data: Option<PDOsascriptResponse>, tx: PlayerDataSender) {
     if data.is_none() {
         println!("Error receiving data from Apple Music");
     }
@@ -85,4 +87,17 @@ where
             send_player_data_async(tx);
         }
     });
+}
+
+#[derive(Serialize)]
+struct GetAlbumDataParams {
+    cached_albums: Vec<String>,
+}
+
+/// Gets data for the album selection screen. Should only be run one time at the start of the program. 
+pub fn get_album_data(album_cache: Vec<String>) -> Vec<ADOsascriptResponse> {
+    const ALBUM_DATA_SCRIPT: &'static str = include_str!("get_album_data.jxa");
+    let script = osascript::JavaScript::new(ALBUM_DATA_SCRIPT);
+    let result: Vec<ADOsascriptResponse> = script.execute_with_params(GetAlbumDataParams { cached_albums: album_cache }).unwrap();
+    result
 }

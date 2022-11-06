@@ -1,7 +1,10 @@
 
 // FRONT BURNER
-// TODO: Automatically get text colors based on image / dark or light theme
-// TODO: Remember window position on close
+// TODO: build textures asynchronously, evenly distributed over a specified number of threads
+// TODO: don't get textures with applescript if they're already cached
+// TODO: account for big/little endian?
+// TODO: instead of not creating now_playing_resources if not playing, create a dummy value that
+// says something like "not playing"
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
@@ -16,6 +19,8 @@
 // TODO: Make window resizable
 // TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
 // TODO: Only re-render info text every frame, not album art
+// TODO: Automatically get text colors based on image / dark or light theme
+// TODO: Remember window position on close
 
 
 use std::collections::HashMap;
@@ -38,6 +43,8 @@ use std::ffi::c_void;
 
 mod player_data;
 use player_data::PlayerState;
+mod album_data;
+use album_data::AlbumResources;
 mod osascript_requests;
 use osascript_requests::JXACommand;
 mod engine;
@@ -184,6 +191,8 @@ fn main() {
             )
         }))
         .collect();
+
+    let album_resources = AlbumResources::get_all_from_music(&texture_creator);
 
     // This code will run every frame
     'running: loop {
@@ -358,12 +367,14 @@ fn main() {
        
     
         //Draw a border
-        canvas.set_blend_mode(BlendMode::Mod);
-        canvas.set_draw_color(Color::RGB(200, 200, 200));
-        canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
-        canvas.set_blend_mode(BlendMode::Add);
-        canvas.set_draw_color(Color::RGB(30, 30, 30));
-        canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
+        // canvas.set_blend_mode(BlendMode::Mod);
+        // canvas.set_draw_color(Color::RGB(200, 200, 200));
+        // canvas.draw_rect(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)).unwrap();
+        // canvas.set_blend_mode(BlendMode::Add);
+        // canvas.set_draw_color(Color::RGB(30, 30, 30));
+        // canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
+
+        // dbg!(album_resources.len());
         
         //Present the canvas
         canvas.present();

@@ -1,8 +1,13 @@
+use sdl2::image::LoadTexture;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use sdl2::render::{Canvas, RenderTarget, Texture, TextureCreator};
 use sdl2_unifont::renderer::SurfaceRenderer;
+
+use image::{self, imageops};
+
+use hex::FromHex;
 
 pub mod mouse;
 use mouse::MouseState;
@@ -119,3 +124,38 @@ pub fn copy_unscaled<T: RenderTarget>(
     canvas.copy(texture, None, Rect::new(x, y, query.width, query.height))?;
     Ok(())
 }
+
+pub fn raw_to_cached_image<'a>(raw_data: &str, size: (u32, u32), cache_path: &str) -> std::result::Result<(), hex::FromHexError> {
+    // Load the raw bytes
+    let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+
+    // If the caller specified a target image size, resize the image to that size
+    let image = image::load_from_memory(&bytes)
+        .unwrap()
+        .resize(size.0, size.1, imageops::FilterType::Nearest);
+
+    // TODO: shouldn't unwrap this
+    image.save_with_format(cache_path, image::ImageFormat::Png).unwrap();
+
+    Ok(())
+} 
+
+pub fn raw_to_texture<'a, 'b, T>(
+    raw_data: &'a str, 
+    texture_creator: &'b TextureCreator<T>, 
+) -> std::result::Result<Texture<'b>, hex::FromHexError> {
+    // Use linear filtering when creating the texture
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
+
+    // Load the raw bytes
+    let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+
+    // Load the texture
+    let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
+
+    // Reset filtering to nearest
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
+
+    Ok(artwork_texture)
+}
+

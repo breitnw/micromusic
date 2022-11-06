@@ -15,6 +15,7 @@ return {
     track_info: {
         name: track.name(),
         artist: track.artist(),
+        album_artist: track.albumArtist(),
         album: track.album(),
         loved: track.loved(),
         length: track.finish(),

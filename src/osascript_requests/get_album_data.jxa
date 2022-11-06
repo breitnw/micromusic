@@ -1,0 +1,34 @@
+
+let app = Application("Music")
+let tracks = app.tracks;
+
+let cachedAlbums = $params.cached_albums;
+cachedAlbums = new Set(cachedAlbums);
+let albums = [];
+
+let prevAlbumLower = ""
+
+for (var i = 0; i < tracks.length; i++) {
+    const track = tracks[i];
+    const album = track.album();
+    const albumLower = album.toLowerCase();
+
+    if (albumLower != prevAlbumLower) {
+        prevAlbumLower = albumLower;
+        
+        const albumArtist = track.albumArtist()
+
+        let artworkData = null;
+        if (!cachedAlbums.has(albumArtist + album)) {
+            artworkData = tracks[i].artworks[0].rawData()
+        }
+        albums.push({
+            // tracks: [trackName],
+            artwork_data: artworkData,
+            album: album,
+            album_artist: albumArtist,
+        });
+    }
+}
+
+return albums

@@ -9,7 +9,7 @@ use serde::Deserialize;
 use hex::FromHex;
 
 #[derive(Deserialize)]
-pub struct OsascriptResponse {
+pub struct PDOsascriptResponse {
     pub track_info: TrackInfo,
     pub player_info: PlayerInfo,
     pub track_artwork_data: String,
@@ -78,11 +78,11 @@ pub struct TrackResources<'a> {
 impl<'a> TrackResources<'a> {
     // TODO: find a better way to determine foreground and background color for the texture than passing them as parameters to this function
     pub fn new<T: 'a>(
-        data: &OsascriptResponse,
+        response: &PDOsascriptResponse,
         texture_creator: &'a TextureCreator<T>,
     ) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
         //Create a texture from the album info
-        let track_info = &data.track_info;
+        let track_info = &response.track_info;
         let info_texture = crate::engine::text_to_texture(
             &format!(
                 "{} - {} - {}",
@@ -93,18 +93,7 @@ impl<'a> TrackResources<'a> {
             Color::RGB(0, 0, 0),
         );
 
-        // Load the raw bytes for the album artwork
-        let raw_artwork_data: &str = &data.track_artwork_data;
-        let bytes = Vec::from_hex(&raw_artwork_data[8..raw_artwork_data.len() - 2])?;
-
-        // Use linear filtering when creating the texture
-        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
-
-        // Use the texture creator to create the texture
-        let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
-
-        // Reset filtering to nearest
-        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
+        let artwork_texture = crate::engine::raw_to_texture(&response.track_artwork_data, texture_creator)?;
 
         Ok(TrackResources {
             info_texture,
@@ -129,7 +118,7 @@ pub struct NowPlayingResourceCollection<'a> {
 
 impl<'a> NowPlayingResourceCollection<'a> {
     pub fn build(
-        response: OsascriptResponse,
+        response: PDOsascriptResponse,
         texture_creator: &'a TextureCreator<WindowContext>,
     ) -> NowPlayingResourceCollection<'a> {
         let track_resources = TrackResources::new(&response, texture_creator).unwrap();
@@ -141,7 +130,7 @@ impl<'a> NowPlayingResourceCollection<'a> {
     }
     pub fn update(
         &mut self,
-        response: OsascriptResponse,
+        response: PDOsascriptResponse,
         texture_creator: &'a TextureCreator<WindowContext>,
     ) {
         // Determine whether track resources need to be recreated by comparing old player data with new player data
