@@ -2,6 +2,8 @@
 // FRONT BURNER
 // TODO: build textures asynchronously, evenly distributed over a specified number of threads
 // TODO: instead of not creating now_playing_resources if not playing, create a dummy value that says something like "not playing"
+// TODO: scrolling inertia for trackpad
+// TODO: add gradient at the top of album selection view to make buttons more visible
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
