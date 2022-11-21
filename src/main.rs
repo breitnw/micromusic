@@ -350,7 +350,9 @@ fn main() {
                         THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT, 
                         THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT,
                     );
-                    canvas.copy(u_album_resources[hovered_album_id].artwork(), None, thumbnail_rect).unwrap();
+                    if let Some(resources) = u_album_resources.get(hovered_album_id) {
+                        canvas.copy(resources.artwork(), None, thumbnail_rect).unwrap();
+                    }
                 }
                 
             }
