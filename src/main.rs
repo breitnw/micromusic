@@ -1,31 +1,29 @@
 
 // FRONT BURNER
 // TODO: build textures asynchronously, evenly distributed over a specified number of threads
-// TODO: don't get textures with applescript if they're already cached
-// TODO: account for big/little endian?
-// TODO: instead of not creating now_playing_resources if not playing, create a dummy value that
-// says something like "not playing"
+// TODO: instead of not creating now_playing_resources if not playing, create a dummy value that says something like "not playing"
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
-// TODO: Fix crash when there's an emoji in track title
 // TODO: Fix crash when clicking heart button while nothing's playing
 
 // FIXES
-// TODO: Title clipping on tracks with short names
 // TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
+// TODO: Some albums getting rendered multiple times
 
 // BACK BURNER
-// TODO: Make window resizable
 // TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
 // TODO: Only re-render info text every frame, not album art
 // TODO: Automatically get text colors based on image / dark or light theme
 // TODO: Remember window position on close
+// TODO: Add a way for user to manually clear caches
+// TODO: Improve system for removing emojis from track titles
+// TODO: Load data directly from cache, then update it when loaded from apple music
 
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use std::sync::mpsc::{self, Sender, Receiver};
+use std::sync::mpsc;
 use std::thread;
 
 use rust_embed::RustEmbed;
@@ -41,6 +39,9 @@ use sdl2::render::{ TextureCreator, Texture, BlendMode };
 use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTestResult};
 use std::ffi::c_void;
 
+use rand::thread_rng;
+use rand::seq::SliceRandom;
+
 mod player_data;
 use player_data::PlayerState;
 mod album_data;
@@ -51,8 +52,15 @@ mod engine;
 use engine::Button;
 
 use crate::album_data::BaseAlbumResources;
+use crate::engine::mouse;
 use crate::player_data::NowPlayingResourceCollection;
 
+
+#[derive(PartialEq)]
+enum View {
+    Miniplayer,
+    AlbumSelect,
+}
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
 fn main() {
@@ -68,7 +76,7 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     // Sizes for the window and canvas
-    const ARTWORK_SIZE: u32 = 200;
+    const ARTWORK_SIZE: u32 = 210;
     const INFO_AREA_HEIGHT: u32 = 40;
     const INFO_PADDING: u32 = 10;
 
@@ -164,6 +172,9 @@ fn main() {
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
 
+    let mut current_view = View::Miniplayer;
+    let mut album_select_scroll_pos: i32 = 0;
+
     // A boolean that specifies whether the user is currently dragging the window. Set when a window drag event occurs,
     // reset when the mouse button is released
     let mut window_interaction_in_progress = false;
@@ -172,8 +183,10 @@ fn main() {
     let button_data = {
         const A_SIZE: i32 = ARTWORK_SIZE as i32;
         [
-            ("heart_empty", (5, 5)),
-            ("heart_filled", (5, 5)),
+            ("album_view", (5, 5)),
+            ("miniplayer_view", (5, 5)), 
+            ("heart_empty", (19, 5)),
+            ("heart_filled", (19, 5)),
             ("minimize", (A_SIZE - 30, 5)),
             ("close", (A_SIZE - 16, 5)),
             ("pause", (A_SIZE / 2 - 5, A_SIZE - 20)),
@@ -197,10 +210,14 @@ fn main() {
     let mut album_resources: Option<Vec<AlbumResources>> = None;
     let (ar_tx, ar_rx) = mpsc::channel();
     thread::spawn(move || {
-        let base_album_resources = BaseAlbumResources::get_all_from_music();
+        let base_album_resources = BaseAlbumResources::get_all_from_music(ARTWORK_SIZE * 2 / 3);
         ar_tx.send(base_album_resources).unwrap();
     });
-    
+
+
+    // TODO: Not sure if this does anything
+    sdl2::hint::set("SDL_MAC_BACKGROUND_APP", "1");
+
 
     // This code will run every frame
     'running: loop {
@@ -217,36 +234,39 @@ fn main() {
                 },
                 Event::MouseButtonUp { x, y, which, .. } => {
                     if which == 0 {
-                        // TODO: Make buttons for this instead
-                        if buttons["heart_empty"].is_hovering(x, y) { 
-                            osascript_requests::run_command(JXACommand::Love, tx.clone()) 
-                        } 
-                        else if buttons["heart_filled"].is_hovering(x, y) { 
-                            osascript_requests::run_command(JXACommand::Unlove, tx.clone()) 
+                        match Button::get_hovered_from_hash(&buttons, x, y) {
+                            "heart_empty" => osascript_requests::run_command(JXACommand::Love, tx.clone()),
+                            "heart_filled" => osascript_requests::run_command(JXACommand::Unlove, tx.clone()),
+                            "album_view" => current_view = View::AlbumSelect,
+                            "miniplayer_view" => current_view = View::Miniplayer,
+                            "play" | "pause" => osascript_requests::run_command(JXACommand::PlayPause, tx.clone()),
+                            "back_track" => osascript_requests::run_command(JXACommand::BackTrack, tx.clone()),
+                            "next_track" => osascript_requests::run_command(JXACommand::NextTrack, tx.clone()),
+                            "minimize" => {
+                                // TODO: fix no longer applicable in Ventura
+                                canvas.window_mut().set_bordered(true);
+                                canvas.window_mut().minimize(); 
+                                canvas.window_mut().set_bordered(false);
+                            },
+                            "close" => break 'running,
+                            _ => ()
                         }
-                        else if buttons["play"].is_hovering(x, y) || buttons["pause"].is_hovering(x, y) {
-                            osascript_requests::run_command(JXACommand::PlayPause, tx.clone())
+                    }
+                }
+                Event::MouseWheel { y, .. } => {
+                    if current_view == View::AlbumSelect {
+                        if let Some(u_album_resources) = album_resources.as_ref() {
+                            const SCROLL_SPEED: i32 = 8;
+                            album_select_scroll_pos -= y * SCROLL_SPEED;
+                            album_select_scroll_pos = album_select_scroll_pos.clamp(0, (u_album_resources.len() as i32 / 3 - 2) * (ARTWORK_SIZE as i32 / 3));
                         }
-                        else if buttons["back_track"].is_hovering(x, y) {
-                            osascript_requests::run_command(JXACommand::BackTrack, tx.clone())
-                        }
-                        else if buttons["next_track"].is_hovering(x, y) {
-                            osascript_requests::run_command(JXACommand::NextTrack, tx.clone())
-                        }
-                        else if buttons["minimize"].is_hovering(x, y) { 
-                            // TODO: Probably find a better solution, this is janky asf
-                            canvas.window_mut().set_bordered(true);
-                            canvas.window_mut().minimize(); 
-                            canvas.window_mut().set_bordered(false);
-                        }
-                        else if buttons["close"].is_hovering(x, y) { break 'running; }
                     }
                 }
                 Event::Window { win_event, .. } => {
                     match win_event {
                         WindowEvent::Moved {..} => {
                             // Update the canvas scale in case the user drags the window to a different monitor
-                            engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT) 
+                            engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
                         },
                         _ => {}
                     }
@@ -265,12 +285,14 @@ fn main() {
         }
 
         // If the base album resources are done loading, create and save their artwork textures
+        // TODO: this should be done when switching to the library screen for the first time to prevent a lag spike
         if let Ok(response) = ar_rx.try_recv() {
             album_resources = Some(
                 response.into_iter()
                     .map(|r| r.construct_artwork(&texture_creator))
                     .collect()
             );
+            album_resources.as_mut().unwrap().shuffle(&mut thread_rng());
         }
         
         // If the channel has new data in it, update the player and track data on this thread
@@ -299,6 +321,44 @@ fn main() {
             button.active = false;
         }
 
+        if current_view == View::AlbumSelect {
+            if let Some(u_album_resources) = album_resources.as_ref() {
+                const THUMBNAIL_SIZE: u32 = ARTWORK_SIZE / 3;
+                const I_THUMBNAIL_SIZE: i32 = ARTWORK_SIZE as i32 / 3;
+                const THUMBNAIL_SCALE_AMOUNT: u32 = 10;
+
+                // Draw all of the album art
+                for i in 0..u_album_resources.len() {
+                    let thumbnail_rect = Rect::new(
+                        I_THUMBNAIL_SIZE * (i as i32 % 3), 
+                        I_THUMBNAIL_SIZE * (i as i32 / 3) - album_select_scroll_pos, 
+                        THUMBNAIL_SIZE, 
+                        THUMBNAIL_SIZE
+                    );
+                    canvas.copy(u_album_resources[i].artwork(), None, thumbnail_rect).unwrap();
+                }
+
+                // Enlarge the album artwork that the user is hovering over
+                if window_rect.contains_point(mouse_state.pos()) {
+                    let mouse_scrolled_pos = Point::new(mouse_state.x(), mouse_state.y() + album_select_scroll_pos);
+                    let hovered_album_id = (mouse_scrolled_pos.x / I_THUMBNAIL_SIZE + mouse_scrolled_pos.y / I_THUMBNAIL_SIZE * 3) as usize;
+                    let thumbnail_rect = Rect::new(
+                        I_THUMBNAIL_SIZE * (hovered_album_id as i32 % 3) - THUMBNAIL_SCALE_AMOUNT as i32 / 2, 
+                        I_THUMBNAIL_SIZE * (hovered_album_id as i32 / 3) - album_select_scroll_pos - THUMBNAIL_SCALE_AMOUNT as i32 / 2, 
+                        THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT, 
+                        THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT,
+                    );
+                    canvas.copy(u_album_resources[hovered_album_id].artwork(), None, thumbnail_rect).unwrap();
+                }
+                
+            }
+            buttons.get_mut("minimize").unwrap().active = true;
+            buttons.get_mut("close").unwrap().active = true;  
+            buttons.get_mut("miniplayer_view").unwrap().active = true;
+            canvas.set_draw_color(Color::BLACK);
+            canvas.fill_rect(Rect::new(0, ARTWORK_SIZE as i32, ARTWORK_SIZE, INFO_AREA_HEIGHT)).unwrap();
+        }
+
         // If the player data has been received, run this code
         if let Some(u_np_resources) = &now_playing_resources {
             let info_tex = u_np_resources.track_resources.info_texture();
@@ -309,12 +369,6 @@ fn main() {
                 info_scroll_pos -= 1; 
                 info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
             }
-            
-            // Draw the album art
-            canvas.copy(art_tex, None, Rect::new(0,0, 
-                ARTWORK_SIZE, 
-                ARTWORK_SIZE
-            )).unwrap();
 
             //Draw the info text, once normally and once shifted to the right for seamless looping
             engine::copy_unscaled(&info_tex, 
@@ -328,47 +382,59 @@ fn main() {
                 &mut canvas
             ).unwrap();
 
-            //Draw an overlay if the user is hovering over the window
-            //TODO: find a way to avoid nesting this if statement inside the last
-            if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || window_interaction_in_progress {
-                // Darken the cover art
-                canvas.set_blend_mode(BlendMode::Mod);
-                canvas.set_draw_color(Color::RGB( 120, 120, 120));
-                canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
+            if current_view == View::Miniplayer {
+                // Draw the album art
+                canvas.copy(art_tex, None, Rect::new(0,0, 
+                    ARTWORK_SIZE, 
+                    ARTWORK_SIZE
+                )).unwrap();
 
-                // Draw a progress bar
-                canvas.set_blend_mode(BlendMode::Add);
-                canvas.set_draw_color(Color::RGB(100, 100, 100));
+                //Draw an overlay if the user is hovering over the window
+                //TODO: find a way to avoid nesting this if statement inside the last
+                if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || window_interaction_in_progress {
+                    // Darken the cover art
+                    canvas.set_blend_mode(BlendMode::Mod);
+                    canvas.set_draw_color(Color::RGB( 120, 120, 120));
+                    canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
 
-                let percent_elapsed = (u_np_resources.player_info.pos() 
-                    + if u_np_resources.player_info.state() == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
-                    / u_np_resources.track_info.length();
+                    // Draw a progress bar
+                    canvas.set_blend_mode(BlendMode::Add);
+                    canvas.set_draw_color(Color::RGB(100, 100, 100));
 
-                canvas.draw_line(
-                    Point::new(0, ARTWORK_SIZE as i32 - 1), 
-                    Point::new(
-                        (ARTWORK_SIZE as f64 * percent_elapsed) as i32, 
-                        ARTWORK_SIZE as i32 - 1
-                    )
-                ).unwrap();
+                    let percent_elapsed = (u_np_resources.player_info.pos() 
+                        + if u_np_resources.player_info.state() == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
+                        / u_np_resources.track_info.length();
 
-                // Update button visibility based on new data
-                buttons.get_mut("next_track").unwrap().active = true;
-                buttons.get_mut("back_track").unwrap().active = true;
+                    canvas.draw_line(
+                        Point::new(0, ARTWORK_SIZE as i32 - 1), 
+                        Point::new(
+                            (ARTWORK_SIZE as f64 * percent_elapsed) as i32, 
+                            ARTWORK_SIZE as i32 - 1
+                        )
+                    ).unwrap();
 
-                buttons.get_mut("minimize").unwrap().active = true;
-                buttons.get_mut("close").unwrap().active = true;   
+                    // Update button visibility based on new data
+                    buttons.get_mut("next_track").unwrap().active = true;
+                    buttons.get_mut("back_track").unwrap().active = true;
 
-                buttons.get_mut("heart_empty").unwrap().active = !u_np_resources.track_info.loved();
-                buttons.get_mut("heart_filled").unwrap().active = u_np_resources.track_info.loved();
+                    buttons.get_mut("minimize").unwrap().active = true;
+                    buttons.get_mut("close").unwrap().active = true;   
 
-                buttons.get_mut("play").unwrap().active = u_np_resources.player_info.state() != PlayerState::Playing;
-                buttons.get_mut("pause").unwrap().active = u_np_resources.player_info.state() == PlayerState::Playing;
+                    buttons.get_mut("heart_empty").unwrap().active = !u_np_resources.track_info.loved();
+                    buttons.get_mut("heart_filled").unwrap().active = u_np_resources.track_info.loved();
+
+                    buttons.get_mut("album_view").unwrap().active = true;
+
+                    buttons.get_mut("play").unwrap().active = u_np_resources.player_info.state() != PlayerState::Playing;
+                    buttons.get_mut("pause").unwrap().active = u_np_resources.player_info.state() == PlayerState::Playing;
+                }
             }
-        } else {
-            // TODO: This should ideally be unnecessary
+        } else if current_view == View::Miniplayer {
+            // If no album artwork or data is recieved
+            // TODO: This should ideally be unnecessary. Instead, fill u_np_resources with some dummy values
             buttons.get_mut("minimize").unwrap().active = true;
             buttons.get_mut("close").unwrap().active = true;
+            buttons.get_mut("album_view").unwrap().active = true;
         }
 
         // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button
@@ -379,8 +445,12 @@ fn main() {
                 sub.push(raw_heap_rect(button.collision_rect.x, button.collision_rect.y, button.collision_rect.w, button.collision_rect.h));
             }
         }
+        if current_view == View::AlbumSelect {
+            sub.push(raw_heap_rect(0, 0, ARTWORK_SIZE as i32, ARTWORK_SIZE as i32));
+        }
         hit_test_data.sub_len = sub.len() as c_int;
         hit_test_data.sub = sub.as_ptr();
+        
        
     
         //Draw a border
@@ -390,9 +460,6 @@ fn main() {
         canvas.set_blend_mode(BlendMode::Add);
         canvas.set_draw_color(Color::RGB(30, 30, 30));
         canvas.draw_rect(Rect::new(1, 1, WINDOW_WIDTH-2, WINDOW_HEIGHT-2)).unwrap();
-
-        // Debug the length of the album resources array
-        if let Some(album_resources) = album_resources.as_deref() { dbg!(album_resources.len()); }
         
         //Present the canvas
         canvas.present();

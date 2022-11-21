@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use regex::Regex;
 use sdl2::image::LoadTexture;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
@@ -86,6 +89,13 @@ impl<'a> Button<'a> {
                 .collision_rect
                 .contains_point(Point::new(mouse_x, mouse_y))
     }
+
+    pub fn get_hovered_from_hash(buttons: &HashMap<&'a str, Button>, mouse_x: i32, mouse_y: i32) -> &'a str {
+        for (button_name, button) in buttons {
+            if button.is_hovering(mouse_x, mouse_y) { return button_name }
+        }
+        "none"
+    }
 }
 
 /// Scale the window so it appears the same on high-DPI displays, works fine for now
@@ -109,7 +119,21 @@ pub fn text_to_texture<'a, T>(
     background_color: Color,
 ) -> Texture<'a> {
     let text_renderer = SurfaceRenderer::new(foreground_color, background_color);
-    let text_surface = text_renderer.draw(text).unwrap();
+    
+    let demojified_str = Regex::new(concat!(
+        "[",
+        "\u{01F600}-\u{01F64F}", // emoticons
+        "\u{01F300}-\u{01F5FF}", // symbols & pictographs
+        "\u{01F680}-\u{01F6FF}", // transport & map symbols
+        "\u{01F1E0}-\u{01F1FF}", // flags
+        "\u{002702}-\u{0027B0}",
+        "\u{0024C2}-\u{01F251}",
+        "]+",
+    )).unwrap().replace_all(&text, "�").to_string();
+
+    let text_surface = text_renderer.draw(&demojified_str).unwrap_or(
+        text_renderer.draw("title could not be rendered").unwrap()
+    );
     text_surface.as_texture(texture_creator).unwrap()
 }
 
@@ -145,7 +169,7 @@ pub fn raw_to_texture<'a, 'b, T>(
     texture_creator: &'b TextureCreator<T>, 
 ) -> std::result::Result<Texture<'b>, hex::FromHexError> {
     // Use linear filtering when creating the texture
-    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "linear");
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best");
 
     // Load the raw bytes
     let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;

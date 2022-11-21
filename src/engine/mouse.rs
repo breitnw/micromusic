@@ -1,3 +1,5 @@
+use sdl2::rect::Point;
+
 // An implementation of MouseState that allows for global and relative states
 // TODO: Probably move this to a separate file
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -44,5 +46,8 @@ impl MouseState {
     }
     pub fn y(&self) -> i32 {
         self.y
+    }
+    pub fn pos(&self) -> Point {
+        Point::new(self.x, self.y)
     }
 }

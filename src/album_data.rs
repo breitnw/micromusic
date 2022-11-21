@@ -21,6 +21,11 @@ pub struct AlbumResources<'a> {
     artwork: Texture<'a>
 }
 
+impl<'a> AlbumResources<'a> {
+    pub fn base_resources(&self) -> &BaseAlbumResources { &self.base_resources }
+    pub fn artwork(&self) -> &Texture<'a> { &self.artwork }
+}
+
 /// A subset of AlbumResources that doesn't contain a texture, allowing for it to be passed between threads.
 pub struct BaseAlbumResources {
     // tracks: Vec<String>,
@@ -30,7 +35,7 @@ pub struct BaseAlbumResources {
 }
 
 impl BaseAlbumResources {
-    pub fn build(response: ADOsascriptResponse, artwork_cache_dir: &Path) -> Self {
+    pub fn build(response: ADOsascriptResponse, artwork_cache_dir: &Path, artwork_size: u32) -> Self {
         let filename = format!(
             "{}.png", 
             // sea::hash64(format!("{}{}", &response.album_artist, &response.album).as_bytes())
@@ -46,7 +51,7 @@ impl BaseAlbumResources {
         if let Some(artwork_data) = response.artwork_data {
             crate::engine::raw_to_cached_image(
                 &artwork_data,
-                (100, 100), 
+                (artwork_size, artwork_size), 
                 &path,
             ).unwrap();
         }
@@ -67,7 +72,7 @@ impl BaseAlbumResources {
         }
     }
 
-    pub fn get_all_from_music() -> Vec<Self> {
+    pub fn get_all_from_music(artwork_size: u32) -> Vec<Self> {
         // Create the cache directory at ~/Library/Caches/com.breitnw.micromusic/artwork/
         let project_dirs = ProjectDirs::from("com", "breitnw", "micromusic")
             .expect("Unable to get path to cache directory.");
@@ -93,6 +98,7 @@ impl BaseAlbumResources {
                 BaseAlbumResources::build(
                     response,
                     artwork_cache_dir, 
+                    artwork_size,
                 ))
             .collect();
             
