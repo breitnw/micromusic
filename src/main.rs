@@ -1,9 +1,9 @@
 
 // FRONT BURNER
-// TODO: build textures asynchronously, evenly distributed over a specified number of threads
 // TODO: instead of not creating now_playing_resources if not playing, create a dummy value that says something like "not playing"
 // TODO: scrolling inertia for trackpad
 // TODO: add gradient at the top of album selection view to make buttons more visible
+// TODO: eliminate scrolling (?) by only showing 9 per page, and having a button to reshuffle (new rows animate in, staggered)
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
@@ -34,11 +34,11 @@ use sdl2;
 use sdl2::image::LoadTexture;
 use sdl2::libc::c_int;
 use sdl2::pixels::Color;
-use sdl2::event::{Event, WindowEvent};
+use sdl2::event::{Event, WindowEvent, EventType};
 use sdl2::rect::{Rect, Point};
 use sdl2::render::{ TextureCreator, Texture, BlendMode };
 
-use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTestResult};
+use sdl2::sys::{SDL_SetWindowHitTest, SDL_Window, SDL_Point, SDL_Rect, SDL_HitTestResult, SDL_CommonEvent, SDL_Event};
 use std::ffi::c_void;
 
 use rand::thread_rng;
@@ -54,7 +54,6 @@ mod engine;
 use engine::Button;
 
 use crate::album_data::BaseAlbumResources;
-use crate::engine::mouse;
 use crate::player_data::NowPlayingResourceCollection;
 
 
@@ -129,7 +128,6 @@ fn main() {
         );
     }
     
-
     //Create a canvas from the window
     let mut canvas = window
         .into_canvas()
@@ -168,19 +166,6 @@ fn main() {
     let icon_textures_default = load_icons(ICON_COLOR_MOD_DEFAULT, BlendMode::Add, &texture_creator);
     let icon_textures_hover = load_icons(ICON_COLOR_MOD_HOVER, BlendMode::Add, &texture_creator);
 
-    // State variables for the rendering loop
-    let mut now_playing_resources: Option<NowPlayingResourceCollection> = None;
-    let mut last_snapshot_time = Instant::now();
-    let mut info_scroll_pos: i32 = 0;
-    const INFO_SPACING: i32 = 50;
-
-    let mut current_view = View::Miniplayer;
-    let mut album_select_scroll_pos: i32 = 0;
-
-    // A boolean that specifies whether the user is currently dragging the window. Set when a window drag event occurs,
-    // reset when the mouse button is released
-    let mut window_interaction_in_progress = false;
-
     // Create a map of all of the buttons on the screen
     let button_data = {
         const A_SIZE: i32 = ARTWORK_SIZE as i32;
@@ -216,65 +201,99 @@ fn main() {
         ar_tx.send(base_album_resources).unwrap();
     });
 
-
     // TODO: Not sure if this does anything
     sdl2::hint::set("SDL_MAC_BACKGROUND_APP", "1");
 
+    // State variables for the rendering loop
+    let mut now_playing_resources: Option<NowPlayingResourceCollection> = None;
+    let mut last_snapshot_time = Instant::now();
+    let mut info_scroll_pos: f32 = 0.0;
+    const INFO_SPACING: i32 = 50;
+
+    let mut current_view = View::Miniplayer;
+    let mut album_select_scroll_pos: i32 = 0;
+
+    // A boolean that specifies whether the user is currently dragging the window. Set when a window drag event occurs,
+    // reset when the mouse button is released
+    let mut window_interaction_in_progress = false;
+
+    // Values for smooth trackpad scrolling
+    let mut scroll_velocity = 0.0;
+    const SCROLL_GLIDE_DAMPING: f32 = 1.1;
+    const SCROLL_SPEED: f32 = 8.0;
 
     // This code will run every frame
     'running: loop {
 
+        // Framerate changes between 30 and 60 depending on the user's actions
+        let mut variable_framerate = 30;
+
         // Mouse state
         let mouse_state = engine::mouse::MouseState::get_relative_state(&event_pump, canvas.window());
         let window_input_focus = &canvas.window().window_flags() & 512 == 512; // input focus: 512, mouse focus: 1024
-        
+
         // Iterate through the input events
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. } => {
-                    break 'running;
-                },
-                Event::MouseButtonUp { x, y, which, .. } => {
-                    if which == 0 {
-                        match Button::get_hovered_from_hash(&buttons, x, y) {
-                            "heart_empty" => osascript_requests::run_command(JXACommand::Love, tx.clone()),
-                            "heart_filled" => osascript_requests::run_command(JXACommand::Unlove, tx.clone()),
-                            "album_view" => current_view = View::AlbumSelect,
-                            "miniplayer_view" => current_view = View::Miniplayer,
-                            "play" | "pause" => osascript_requests::run_command(JXACommand::PlayPause, tx.clone()),
-                            "back_track" => osascript_requests::run_command(JXACommand::BackTrack, tx.clone()),
-                            "next_track" => osascript_requests::run_command(JXACommand::NextTrack, tx.clone()),
-                            "minimize" => {
-                                // TODO: fix no longer applicable in Ventura
-                                canvas.window_mut().set_bordered(true);
-                                canvas.window_mut().minimize(); 
-                                canvas.window_mut().set_bordered(false);
-                            },
-                            "close" => break 'running,
-                            _ => ()
-                        }
-                    }
-                }
-                Event::MouseWheel { y, .. } => {
-                    if current_view == View::AlbumSelect {
-                        if let Some(u_album_resources) = album_resources.as_ref() {
-                            const SCROLL_SPEED: i32 = 8;
-                            album_select_scroll_pos -= y * SCROLL_SPEED;
-                            album_select_scroll_pos = album_select_scroll_pos.clamp(0, (u_album_resources.len() as i32 / 3 - 2) * (ARTWORK_SIZE as i32 / 3));
-                        }
-                    }
-                }
-                Event::Window { win_event, .. } => {
-                    match win_event {
-                        WindowEvent::Moved {..} => {
-                            // Update the canvas scale in case the user drags the window to a different monitor
-                            engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
-                        },
-                        _ => {}
-                    }
-                }
-                _ => {}
+        unsafe {
+            extern "C" { 
+                pub fn get_wheel_y(event: *const SDL_Event) -> sdl2::libc::c_float;
             }
+            let mut event = SDL_Event { common: SDL_CommonEvent {type_: 0, timestamp: 0}};
+
+            // TODO: ideally don't have all of this code in an unsafe block
+            while sdl2::sys::SDL_PollEvent(&mut event) == 1 {
+                let raw_type = event.type_;
+                let event_type = EventType::try_from(raw_type as u32).unwrap_or(EventType::User);
+                match event_type {
+                    EventType::Quit => break 'running,
+                    EventType::MouseButtonUp => {
+                        if event.button.button == 1 {
+                            let (x, y) = (event.button.x, event.button.y);
+                            match Button::get_hovered_from_hash(&buttons, x, y) {
+                                "heart_empty" => osascript_requests::run_command(JXACommand::Love, tx.clone()),
+                                "heart_filled" => osascript_requests::run_command(JXACommand::Unlove, tx.clone()),
+                                "album_view" => current_view = View::AlbumSelect,
+                                "miniplayer_view" => current_view = View::Miniplayer,
+                                "play" | "pause" => osascript_requests::run_command(JXACommand::PlayPause, tx.clone()),
+                                "back_track" => osascript_requests::run_command(JXACommand::BackTrack, tx.clone()),
+                                "next_track" => osascript_requests::run_command(JXACommand::NextTrack, tx.clone()),
+                                "minimize" => {
+                                    // TODO: fix no longer applicable in Ventura
+                                    canvas.window_mut().set_bordered(true);
+                                    canvas.window_mut().minimize(); 
+                                    canvas.window_mut().set_bordered(false);
+                                },
+                                "close" => break 'running,
+                                _ => ()
+                            }
+                        }
+                    }
+                    EventType::MouseWheel => {
+                        // TODO: find a less janky way to enable inertial scrolling
+                        let y = get_wheel_y(&event);
+                        if current_view == View::AlbumSelect {
+                            scroll_velocity = y * SCROLL_SPEED;
+                        }
+                    }
+                    EventType::Window => {
+                        // Update the canvas scale if moved to a different monitor
+                        if (event.window.event & 2) != 0 { 
+                            engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        scroll_velocity /= SCROLL_GLIDE_DAMPING;
+        if scroll_velocity.abs() > 0.5 && current_view == View::AlbumSelect {
+            if let Some(u_album_resources) = album_resources.as_ref() {
+                album_select_scroll_pos -= scroll_velocity as i32;
+                album_select_scroll_pos = album_select_scroll_pos.clamp(0, (u_album_resources.len() as i32 / 3 - 2) * (ARTWORK_SIZE as i32 / 3));
+                variable_framerate = 60;
+            }
+        } else {
+            scroll_velocity = 0.0;
         }
 
         // Reset drag_in_progress if the mouse button was just lifted
@@ -325,6 +344,7 @@ fn main() {
 
         if current_view == View::AlbumSelect {
             if let Some(u_album_resources) = album_resources.as_ref() {
+
                 const THUMBNAIL_SIZE: u32 = ARTWORK_SIZE / 3;
                 const I_THUMBNAIL_SIZE: i32 = ARTWORK_SIZE as i32 / 3;
                 const THUMBNAIL_SCALE_AMOUNT: u32 = 10;
@@ -341,7 +361,7 @@ fn main() {
                 }
 
                 // Enlarge the album artwork that the user is hovering over
-                if window_rect.contains_point(mouse_state.pos()) {
+                if window_input_focus && Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE).contains_point(mouse_state.pos()) {
                     let mouse_scrolled_pos = Point::new(mouse_state.x(), mouse_state.y() + album_select_scroll_pos);
                     let hovered_album_id = (mouse_scrolled_pos.x / I_THUMBNAIL_SIZE + mouse_scrolled_pos.y / I_THUMBNAIL_SIZE * 3) as usize;
                     let thumbnail_rect = Rect::new(
@@ -370,18 +390,18 @@ fn main() {
             let art_tex = u_np_resources.track_resources.artwork_texture();
             
             if u_np_resources.player_info.state() == PlayerState::Playing {
-                info_scroll_pos -= 1; 
-                info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+                info_scroll_pos -= 1.0 * 30.0 / (variable_framerate as f32); 
+                info_scroll_pos %= (info_qry.width as i32 + INFO_SPACING) as f32;
             }
 
             //Draw the info text, once normally and once shifted to the right for seamless looping
             engine::copy_unscaled(&info_tex, 
-                info_scroll_pos, 
+                info_scroll_pos as i32, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
                 &mut canvas
             ).unwrap();
             engine::copy_unscaled(&info_tex, 
-                info_scroll_pos + info_qry.width as i32 + INFO_SPACING, 
+                info_scroll_pos as i32 + info_qry.width as i32 + INFO_SPACING, 
                 (ARTWORK_SIZE + INFO_PADDING) as i32, 
                 &mut canvas
             ).unwrap();
@@ -395,7 +415,7 @@ fn main() {
 
                 //Draw an overlay if the user is hovering over the window
                 //TODO: find a way to avoid nesting this if statement inside the last
-                if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || window_interaction_in_progress {
+                if window_input_focus && window_rect.contains_point(mouse_state.pos()) || window_interaction_in_progress {
                     // Darken the cover art
                     canvas.set_blend_mode(BlendMode::Mod);
                     canvas.set_draw_color(Color::RGB( 120, 120, 120));
@@ -454,7 +474,6 @@ fn main() {
         }
         hit_test_data.sub_len = sub.len() as c_int;
         hit_test_data.sub = sub.as_ptr();
-        
        
     
         //Draw a border
@@ -467,6 +486,6 @@ fn main() {
         
         //Present the canvas
         canvas.present();
-        thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
+        thread::sleep(Duration::from_nanos(1_000_000_000u64 / variable_framerate));
     }
 }

@@ -30,11 +30,17 @@ SDL_HitTestResult hitTest(__attribute__((unused)) SDL_Window* window, const SDL_
         }
     }
 
-    // if (hit_test_data.sub_len > 0) {
-    //     SDL_Rect rect = *hit_test_data.sub[0];
-    //     SDL_Log("x: %i, y: %i, w: %i, h: %i", rect.x, rect.y, rect.w, rect.h);
-    //     SDL_Log("length: %i", hit_test_data.add_len);
-    // }
-
     return SDL_HITTEST_NORMAL;
+}
+
+
+float get_wheel_y(SDL_Event* event_ptr) {
+    SDL_Event event = *event_ptr;
+    if(event.type == SDL_MOUSEWHEEL) {
+        return event.wheel.preciseY;
+    }
+    if(event.type == SDL_DOLLARGESTURE) {
+        return 100000.0;
+    }
+    return 0.0;
 }

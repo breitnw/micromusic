@@ -65,7 +65,9 @@ impl BaseAlbumResources {
     }
 
     pub fn construct_artwork<'a, T>(self, texture_creator: &'a TextureCreator<T>) -> AlbumResources {
+        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best");
         let artwork = texture_creator.load_texture(&self.artwork_file_path).unwrap();  // Should never panic
+        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
         AlbumResources {
             base_resources: self,
             artwork,
