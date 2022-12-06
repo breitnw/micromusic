@@ -156,7 +156,7 @@ pub fn raw_to_cached_image<'a>(raw_data: &str, size: (u32, u32), cache_path: &st
     // If the caller specified a target image size, resize the image to that size
     let image = image::load_from_memory(&bytes)
         .unwrap()
-        .resize(size.0, size.1, imageops::FilterType::Nearest);
+        .resize(size.0, size.1, imageops::FilterType::CatmullRom);
 
     // TODO: shouldn't unwrap this
     image.save_with_format(cache_path, image::ImageFormat::Png).unwrap();
