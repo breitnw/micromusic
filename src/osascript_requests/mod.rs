@@ -20,7 +20,7 @@ fn get_player_data() -> Option<PDOsascriptResponse> {
 /// Sends information about the music player's state to the main thread
 fn send_player_data(data: Option<PDOsascriptResponse>, tx: PlayerDataSender) {
     if data.is_none() {
-        println!("Error receiving data from Apple Music");
+        println!("No player data found");
     }
     tx.send(data)
         .expect("Couldn't send player data through the channel");
