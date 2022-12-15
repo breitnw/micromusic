@@ -38,7 +38,6 @@ impl BaseAlbumResources {
     pub fn build(response: ADOsascriptResponse, artwork_cache_dir: &Path, artwork_size: u32) -> Self {
         let filename = format!(
             "{}.png", 
-            // sea::hash64(format!("{}{}", &response.album_artist, &response.album).as_bytes())
             BASE64URL_NOPAD.encode(format!("{}{}", &response.album_artist, &response.album).as_bytes())
         );
 
