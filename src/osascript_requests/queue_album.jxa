@@ -22,5 +22,6 @@ for (const track of tracks()) {
 let current_pl = app.currentPlaylist;
 if (!current_pl.exists() || current_pl().name() != playlistName) {
     pl.play();
+    app.shuffleEnabled = false;
 }
 
