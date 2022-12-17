@@ -1,0 +1,8 @@
+
+var app = Application('Music');
+
+const playlistName = "micromusic DJ"
+
+while (app.playlists[playlistName].exists()) {
+    app.playlists[playlistName].delete()
+}

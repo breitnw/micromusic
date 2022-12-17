@@ -22,8 +22,9 @@ pub struct AlbumResources<'a> {
 }
 
 impl<'a> AlbumResources<'a> {
-    pub fn base_resources(&self) -> &BaseAlbumResources { &self.base_resources }
     pub fn artwork(&self) -> &Texture<'a> { &self.artwork }
+    pub fn title(&self) -> &str { &self.base_resources.album }
+    pub fn album_artist(&self) -> &str { &self.base_resources.album_artist }
 }
 
 /// A subset of AlbumResources that doesn't contain a texture, allowing for it to be passed between threads.

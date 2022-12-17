@@ -16,7 +16,6 @@
 // FIXES
 // TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 // TODO: Some albums getting rendered multiple times
-// TODO: Improve system for removing emojis from track titles, since right now it seems to eliminate all unicode
 
 // BACK BURNER
 // TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
@@ -32,7 +31,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use std::sync::mpsc;
-use std::thread;
+use std::{thread};
 
 use queues::{Queue, IsQueue};
 use rust_embed::RustEmbed;
@@ -62,7 +61,6 @@ mod engine;
 use engine::Button;
 
 use crate::album_data::BaseAlbumResources;
-use crate::engine::mouse::MouseState;
 use crate::player_data::NowPlayingResourceCollection;
 
 
@@ -81,6 +79,7 @@ fn main() {
 
     // Spawn a secondary thread to periodically gather information on the current track and send it to the main thread
     osascript_requests::send_player_data_loop(player_tx.clone());
+    osascript_requests::make_dj_playlist();
 
     // Initialize SDL
     let sdl_context = sdl2::init().unwrap();
@@ -109,7 +108,6 @@ fn main() {
         .build()
         .unwrap();
     window.raise();
-
     
     // Make the window draggable
     fn raw_heap_rect(x: c_int, y: c_int, w: c_int, h: c_int) -> *const SDL_Rect {
@@ -294,13 +292,20 @@ fn main() {
                                 }
                             }
                         }
-                        "close" => break 'running,
+                        "close" => {
+                            osascript_requests::remove_dj_playlist();
+                            break 'running
+                        },
                         _ =>  {
                             if current_view == View::AlbumSelect && artwork_rect.contains_point(mouse_state.pos()) {
                                 let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
                                 let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
                                 
-                                album_view_queue.add(target_row.remove(hovered_album_loc.x as usize).album).unwrap();
+                                let clicked_album = target_row.remove(hovered_album_loc.x as usize).album;
+
+                                osascript_requests::queue_album(clicked_album.title().to_string(), clicked_album.album_artist().to_string());
+
+                                album_view_queue.add(clicked_album).unwrap();
                                 target_row.push(AlbumViewItem {
                                     album: album_view_queue.remove().unwrap(),
                                     x_pos: ARTWORK_SIZE as f32,

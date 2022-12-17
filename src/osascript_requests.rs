@@ -12,7 +12,7 @@ type PlayerDataSender = Sender<Option<PDOsascriptResponse>>;
 
 /// Returns information on the state of the music player
 fn get_player_data() -> Option<PDOsascriptResponse> {
-    const PLAYER_DATA_SCRIPT: &'static str = include_str!("get_player_data.jxa");
+    const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_DATA_SCRIPT);
     script.execute().ok()
 }
@@ -96,8 +96,35 @@ struct GetAlbumDataParams {
 
 /// Gets data for the album selection screen. Should only be run one time at the start of the program. 
 pub fn get_album_data(album_cache: Vec<String>) -> Vec<ADOsascriptResponse> {
-    const ALBUM_DATA_SCRIPT: &'static str = include_str!("get_album_data.jxa");
+    const ALBUM_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_album_data.jxa");
     let script = osascript::JavaScript::new(ALBUM_DATA_SCRIPT);
     let result: Vec<ADOsascriptResponse> = script.execute_with_params(GetAlbumDataParams { cached_albums: album_cache }).unwrap();
     result
+}
+
+#[derive(Serialize)]
+struct PlayAlbumParams {
+    album: String,
+    album_artist: String,
+}
+
+pub fn queue_album(album: String, album_artist: String) {
+    const ALBUM_PLAY_SCRIPT: &'static str = include_str!("osascript_requests/queue_album.jxa");
+    let script = osascript::JavaScript::new(ALBUM_PLAY_SCRIPT);
+
+    thread::spawn(move || {
+        let _: () = script.execute_with_params(PlayAlbumParams { album, album_artist }).unwrap();
+    });
+}
+
+pub fn make_dj_playlist() {
+    const MAKE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/make_dj_playlist.jxa");
+    let script = osascript::JavaScript::new(MAKE_DJ_PLAYLIST_SCRIPT);
+    let _: () = script.execute().unwrap();
+}
+
+pub fn remove_dj_playlist() {
+    const REMOVE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/remove_dj_playlist.jxa");
+    let script = osascript::JavaScript::new(REMOVE_DJ_PLAYLIST_SCRIPT);
+    let _: () = script.execute().unwrap();
 }

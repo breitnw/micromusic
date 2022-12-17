@@ -1,0 +1,26 @@
+
+const albumArtist = $params.album_artist;
+const album = $params.album;
+
+let app = Application("Music")
+
+const playlistName = "micromusic DJ"
+
+// The above code was returning an error (possibly a JXA bug) so the below is necessary
+let tracks = app.tracks.whose({
+    album: album,
+});
+
+let pl = app.playlists[playlistName];
+
+for (const track of tracks()) {
+    if (track.albumArtist() != albumArtist) 
+        continue;
+    track.duplicate({to: pl});
+}
+
+let current_pl = app.currentPlaylist;
+if (!current_pl.exists() || current_pl().name() != playlistName) {
+    pl.play();
+}
+

@@ -6,8 +6,6 @@ use sdl2::render::TextureCreator;
 use sdl2::video::WindowContext;
 use serde::Deserialize;
 
-use hex::FromHex;
-
 #[derive(Deserialize)]
 pub struct PDOsascriptResponse {
     pub track_info: TrackInfo,
