@@ -98,7 +98,8 @@ fn main() {
 
     const THUMBNAIL_SIZE: u32 = ARTWORK_SIZE / 3;
     const I_THUMBNAIL_SIZE: i32 = ARTWORK_SIZE as i32 / 3;
-    const THUMBNAIL_SCALE_AMOUNT: u32 = 10;
+    const THUMBNAIL_SCALE_AMT_HOVER: u32 = 10; // added
+    const THUMBNAIL_SCALE_AMT_DRAG: u32 = 30; // subtracted
 
     // Create the window
     let mut window = video_subsystem.window("micromusic", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -210,6 +211,13 @@ fn main() {
         }))
         .collect();
     
+    // Add the queue box button, which requires a different texture for default and hover states
+    buttons.insert("queue", Button::new(ARTWORK_SIZE as i32 - 36, ARTWORK_SIZE as i32 - 36, 
+        &icon_textures_default["queue_closed.png"], 
+        &icon_textures_hover["queue_open.png"], 
+        &icon_textures_hover["queue_open.png"], 
+    ));
+    
     // Spawn a thread to get all album resources from Apple Music
     let (album_tx, album_rx) = mpsc::channel();
     thread::spawn(move || {
@@ -226,13 +234,21 @@ fn main() {
         pub freeze_timer: u32,
     }
     impl AlbumViewItem<'_> {
-        // column 0 is farthest to the RIGHT so new albums, added at 0, slide in from the right
-        fn get_target_pos(item_col_i: usize) -> i32 {
-            item_col_i as i32 * ARTWORK_SIZE as i32 / 3
+        fn get_target_pos(item_col_i: usize, drag_placeholder_x: Option<usize>) -> usize {
+            let mut item_col_i = item_col_i;
+            let drag_placeholder_x = drag_placeholder_x.filter(|x| item_col_i >= *x);
+            if drag_placeholder_x.is_some() {
+                item_col_i += 1;
+            }
+            item_col_i as usize * ARTWORK_SIZE as usize / 3
+            
         }
     }
     let mut album_view_queue: Queue<Rc<AlbumResources>> = Queue::new();
     let mut album_view_rows: [Vec<AlbumViewItem>; 3] = [vec![], vec![], vec![]];
+    let mut dragged_item: Option<AlbumViewItem> = None;
+    let mut dragged_item_pos: [f32; 2] = [0.0, 0.0];
+    let mut drag_placeholder_loc: Option<[usize; 2]> = None;
 
 
     // State variables for the rendering loop
@@ -260,59 +276,102 @@ fn main() {
                 Event::Quit { .. } => {
                     break 'running;
                 },
+                Event::MouseButtonDown { x, y, mouse_btn: MouseButton::Left, ..} => {
+                    if Button::get_hovered_from_hash(&buttons, x, y).is_some() {
+                        continue;
+                    }
+                    if current_view == View::AlbumSelect && artwork_rect.contains_point(mouse_state.pos()) {
+                        let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
+                        let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
+                        
+                        if !target_row.is_empty() {
+                            let target_item = target_row.remove(hovered_album_loc.x as usize);
+                            dragged_item_pos = [
+                                target_item.x_pos,
+                                (I_THUMBNAIL_SIZE * hovered_album_loc.y) as f32
+                            ];
+                            dragged_item = Some(target_item);
+    
+                            target_row.push(AlbumViewItem {
+                                album: album_view_queue.remove().unwrap(),
+                                x_pos: ARTWORK_SIZE as f32,
+                                x_vel: 0.0,
+                                freeze_timer: 0,
+                            });
+                        }
+                    }
+                }
                 Event::MouseButtonUp { x, y, mouse_btn: MouseButton::Left, ..} => {
+                    // Filter loc so that it's none if out of bounds
+                    let loc = drag_placeholder_loc
+                        .filter(|loc| (loc[1]) < 3 && (loc[0]) < 3);
+
+                    if let Some(mut u_dragged_item) = dragged_item {
+                        if let Some(loc) = loc {
+                            u_dragged_item.x_pos = AlbumViewItem::get_target_pos(loc[0], None) as f32;
+                            album_view_rows[loc[1]].insert(loc[0], u_dragged_item);
+                        } else {
+                            album_view_queue.add(u_dragged_item.album).unwrap();
+                        }
+                        dragged_item = None;
+                        continue;
+                    }
+                    
                     match Button::get_hovered_from_hash(&buttons, x, y) {
-                        "heart_empty" => osascript_requests::run_command(JXACommand::Love, player_tx.clone()),
-                        "heart_filled" => osascript_requests::run_command(JXACommand::Unlove, player_tx.clone()),
-                        "album_view" => current_view = View::AlbumSelect,
-                        "miniplayer_view" => current_view = View::Miniplayer,
-                        "play" | "pause" => osascript_requests::run_command(JXACommand::PlayPause, player_tx.clone()),
-                        "back_track" => osascript_requests::run_command(JXACommand::BackTrack, player_tx.clone()),
-                        "next_track" => osascript_requests::run_command(JXACommand::NextTrack, player_tx.clone()),
-                        "minimize" => {
-                            // TODO: temporary border enabling hack no longer necessary in Ventura, remove?
-                            canvas.window_mut().set_bordered(true);
-                            canvas.window_mut().minimize(); 
-                            canvas.window_mut().set_bordered(false);
-                        },
-                        "reshuffle" => {
-                            for row in album_view_rows.iter_mut() {
-                                row.drain(..).for_each(|item| { album_view_queue.add(item.album).unwrap(); } );
+                        Some(button_name) => match button_name {
+                            "heart_empty" => osascript_requests::run_command(JXACommand::Love, player_tx.clone()),
+                            "heart_filled" => osascript_requests::run_command(JXACommand::Unlove, player_tx.clone()),
+                            "album_view" => current_view = View::AlbumSelect,
+                            "miniplayer_view" => current_view = View::Miniplayer,
+                            "play" | "pause" => osascript_requests::run_command(JXACommand::PlayPause, player_tx.clone()),
+                            "back_track" => osascript_requests::run_command(JXACommand::BackTrack, player_tx.clone()),
+                            "next_track" => osascript_requests::run_command(JXACommand::NextTrack, player_tx.clone()),
+                            "minimize" => {
+                                // TODO: temporary border enabling hack no longer necessary in Ventura, remove?
+                                canvas.window_mut().set_bordered(true);
+                                canvas.window_mut().minimize(); 
+                                canvas.window_mut().set_bordered(false);
                             }
-                            for i in 0..9 {
-                                if let Ok(a) = album_view_queue.remove() {
-                                    album_view_rows[i % 3].push(AlbumViewItem {
-                                        album: a, 
-                                        x_pos: AlbumViewItem::get_target_pos(i / 3) as f32 + ARTWORK_SIZE as f32, 
-                                        x_vel: 0.0,
-                                        freeze_timer: i as u32 % 3 * 3 + i as u32 / 3,  // TODO: ew
-                                    })
-                                } else {
-                                    break;
+                            "reshuffle" => {
+                                for row in album_view_rows.iter_mut() {
+                                    row.drain(..).for_each(|item| { album_view_queue.add(item.album).unwrap(); } );
+                                }
+                                for i in 0..9 {
+                                    if let Ok(a) = album_view_queue.remove() {
+                                        album_view_rows[i % 3].push(AlbumViewItem {
+                                            album: a, 
+                                            x_pos: AlbumViewItem::get_target_pos(i / 3, None) as f32 + ARTWORK_SIZE as f32, 
+                                            x_vel: 0.0,
+                                            freeze_timer: i as u32 % 3 * 3 + i as u32 / 3,  // TODO: ew
+                                        })
+                                    } else {
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        "close" => {
-                            osascript_requests::remove_dj_playlist();
-                            break 'running
-                        },
-                        _ =>  {
-                            if current_view == View::AlbumSelect && artwork_rect.contains_point(mouse_state.pos()) {
-                                let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
-                                let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
-                                
-                                let clicked_album = target_row.remove(hovered_album_loc.x as usize).album;
-
-                                osascript_requests::queue_album(clicked_album.title().to_string(), clicked_album.album_artist().to_string());
-
-                                album_view_queue.add(clicked_album).unwrap();
-                                target_row.push(AlbumViewItem {
-                                    album: album_view_queue.remove().unwrap(),
-                                    x_pos: ARTWORK_SIZE as f32,
-                                    x_vel: 0.0,
-                                    freeze_timer: 0,
-                                });
+                            "close" => {
+                                // osascript_requests::remove_dj_playlist();
+                                break 'running
                             }
+                            _ => {}
+                        }
+                        None => {
+                            // if current_view == View::AlbumSelect && artwork_rect.contains_point(mouse_state.pos()) {
+                            //     let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
+                            //     let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
+                                
+                            //     let clicked_album = target_row.remove(hovered_album_loc.x as usize).album;
+
+                            //     osascript_requests::queue_album(clicked_album.title().to_string(), clicked_album.album_artist().to_string());
+
+                            //     album_view_queue.add(clicked_album).unwrap();
+                            //     target_row.push(AlbumViewItem {
+                            //         album: album_view_queue.remove().unwrap(),
+                            //         x_pos: ARTWORK_SIZE as f32,
+                            //         x_vel: 0.0,
+                            //         freeze_timer: 0,
+                            //     });
+                            // }
                         }
                     }
                 }
@@ -331,14 +390,15 @@ fn main() {
 
         // Reset drag_in_progress if the mouse button was just lifted
         if mouse_state.is_mouse_button_pressed(sdl2::mouse::MouseButton::Left) {
-            if window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) && window_input_focus {
+            if window_rect.contains_point(mouse_state.pos()) && window_input_focus {
                 window_interaction_in_progress = true;
             }
         } else {
             window_interaction_in_progress = false;
         }
+
         
-        // If the channel has new data in it, update the player and track data on this thread
+        // If the now playing channel has new data in it, update the player and track data on this thread
         if let Ok(response) = player_rx.try_recv() {
             if let Some(u_response) = response {
                 if let Some(u_np_resources) = now_playing_resources.as_mut() {
@@ -354,18 +414,7 @@ fn main() {
             last_snapshot_time = Instant::now();
         }
 
-        // Clear the canvas for drawing
-        canvas.set_draw_color(Color::RGB(0, 0, 0));
-        canvas.set_blend_mode(BlendMode::None);
-        canvas.clear();
-
-        // Deactivate all of the buttons
-        for button in buttons.values_mut() {
-            button.active = false;
-        }
-
         // If the base album resources are done loading, create and save their artwork textures
-        // TODO: this should be done when switching to the library screen for the first time to prevent a lag spike
         if let Ok(response) = album_rx.try_recv() {
             let mut album_resources: Vec<AlbumResources> = response.into_iter()
                 .map(|r| r.construct_artwork(&texture_creator))
@@ -380,7 +429,7 @@ fn main() {
                 if let Ok(a) = album_view_queue.remove() {
                     album_view_rows[i % 3].push(AlbumViewItem {
                         album: a, 
-                        x_pos: AlbumViewItem::get_target_pos(i / 3) as f32, 
+                        x_pos: AlbumViewItem::get_target_pos(i / 3, None) as f32, 
                         x_vel: 0.0,
                         freeze_timer: 0,
                     })
@@ -390,12 +439,35 @@ fn main() {
             }
         }
 
+
+        // Clear the canvas for drawing
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.set_blend_mode(BlendMode::None);
+        canvas.clear();
+
+        // Deactivate all of the buttons
+        for button in buttons.values_mut() {
+            button.active = false;
+        }
+
+
         // Per-frame code for the album select screen
         if current_view == View::AlbumSelect {
 
-            for row in album_view_rows.as_mut() {
-                for (i, item) in row.iter_mut().enumerate() {
-                    let target_pos = AlbumViewItem::get_target_pos(i) as f32;
+            // The 3x3 grid coordinates of the album that's currently being hovered over
+            // Casts done individually to prevent negative positions rounding toward 0
+            let hovered_album_loc: [usize; 2] = [
+                (mouse_state.x() as usize) / THUMBNAIL_SIZE as usize, 
+                (mouse_state.y() as usize) / THUMBNAIL_SIZE as usize
+            ];
+            drag_placeholder_loc = dragged_item.as_ref().map(|_| hovered_album_loc);
+
+            // Update the positions of all of the thumbnails
+            for (row_y, row) in album_view_rows.iter_mut().enumerate() {
+                for (item_x, item) in row.iter_mut().enumerate() {
+                    let drag_placeholder_x = drag_placeholder_loc.filter(|loc| loc[1] == row_y).map(|loc| loc[0]);
+
+                    let target_pos = AlbumViewItem::get_target_pos(item_x, drag_placeholder_x) as f32;
                     let dist_from_target = item.x_pos - target_pos;
 
                     // Freeze any thumbnails with the freeze timers greater than 0. Primarily used to stagger movements
@@ -404,9 +476,11 @@ fn main() {
                         item.freeze_timer -= 1;
                     } 
                     // Otherwise, move the thumbnail according to its position and velocity
-                    else if dist_from_target > 1.0 {
-                        // TODO: if velocity algorithm isn't changed, it's unnecessary to store x_vel per-item
+                    // TODO: if velocity algorithm isn't changed, it's unnecessary to store x_vel per-item
+                    else if dist_from_target > 2.0 {
                         item.x_vel = (dist_from_target / 100.0).abs().sqrt() * -15.0;
+                    } else if dist_from_target < -2.0 {
+                        item.x_vel = (dist_from_target / 100.0).abs().sqrt() * 30.0;
                     } else {
                         item.x_vel = 0.0;
                         item.x_pos = target_pos;
@@ -415,6 +489,7 @@ fn main() {
                 }
             }
 
+            // Draw all of the regular-scale thumbnails
             for (y, row) in album_view_rows.iter().enumerate() {
                 for item in row {
                     let thumbnail_rect = Rect::new(
@@ -427,18 +502,35 @@ fn main() {
                 }
             }
 
-            // Enlarge the album artwork that the user is hovering over
-            if window_input_focus && artwork_rect.contains_point(mouse_state.pos()) {
-                let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
-                let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
-                
-                if let Some(item) = target_row.get(hovered_album_loc.x as usize) {
+            // Draw the item that is currently being dragged, if there is one
+            if let Some(u_dragged_item) = dragged_item.as_ref() {
+                const DRAG_SPEED_MULTIPLIER: f32 = 0.6;
+                const THUMBNAIL_SIZE_DRAG: u32 = THUMBNAIL_SIZE - THUMBNAIL_SCALE_AMT_DRAG;
+
+                let target_pos = mouse_state.pos() - Point::new(THUMBNAIL_SIZE_DRAG as i32 / 2, THUMBNAIL_SIZE_DRAG as i32 / 2);
+                let direction = [target_pos.x() as f32 - dragged_item_pos[0], target_pos.y() as f32 - dragged_item_pos[1]];
+                let velocity = [direction[0] * DRAG_SPEED_MULTIPLIER, direction[1] * DRAG_SPEED_MULTIPLIER];
+
+                dragged_item_pos = [dragged_item_pos[0] + velocity[0], dragged_item_pos[1] + velocity[1]];
+                let dragged_item_rect = Rect::new(
+                    dragged_item_pos[0] as i32,
+                    dragged_item_pos[1] as i32,
+                    THUMBNAIL_SIZE_DRAG, 
+                    THUMBNAIL_SIZE_DRAG,
+                );
+                canvas.copy(u_dragged_item.album.artwork(), None, dragged_item_rect).unwrap();
+            
+            } else if window_input_focus {
+                // Enlarge the album artwork that the user is hovering over
+                let target_row = album_view_rows.get_mut(hovered_album_loc[1]);
+
+                if let Some(item) = target_row.and_then(|r| r.get(hovered_album_loc[1])) {
                     if item.x_vel.abs() < 0.1 {
                         let thumbnail_rect = Rect::new(
-                            item.x_pos as i32 - THUMBNAIL_SCALE_AMOUNT as i32 / 2, 
-                            I_THUMBNAIL_SIZE * hovered_album_loc.y - THUMBNAIL_SCALE_AMOUNT as i32 / 2, 
-                            THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT, 
-                            THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMOUNT,
+                            item.x_pos as i32 - THUMBNAIL_SCALE_AMT_HOVER as i32 / 2, 
+                            I_THUMBNAIL_SIZE * hovered_album_loc[1] as i32 - THUMBNAIL_SCALE_AMT_HOVER as i32 / 2, 
+                            THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMT_HOVER, 
+                            THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMT_HOVER,
                         );
                         canvas.copy(item.album.artwork(), None, thumbnail_rect).unwrap();
                     }
@@ -450,9 +542,12 @@ fn main() {
             buttons.get_mut("miniplayer_view").unwrap().active = true;
             buttons.get_mut("reshuffle").unwrap().active = true;
 
+            buttons.get_mut("queue").unwrap().active = true;
+
             canvas.set_draw_color(Color::BLACK);
             canvas.fill_rect(Rect::new(0, ARTWORK_SIZE as i32, ARTWORK_SIZE, INFO_AREA_HEIGHT)).unwrap();
         }
+
 
         // If the player data has been received, run this code
         if let Some(u_np_resources) = &now_playing_resources {
@@ -486,7 +581,7 @@ fn main() {
 
                 //Draw an overlay if the user is hovering over the window
                 //TODO: find a way to avoid nesting this if statement inside the last
-                if window_input_focus && window_rect.contains_point(Point::new(mouse_state.x(), mouse_state.y())) || window_interaction_in_progress {
+                if window_input_focus && window_rect.contains_point(mouse_state.pos()) || window_interaction_in_progress {
                     // Darken the cover art
                     canvas.set_blend_mode(BlendMode::Mod);
                     canvas.set_draw_color(Color::RGB( 120, 120, 120));
@@ -541,12 +636,15 @@ fn main() {
             }
         }
         if current_view == View::AlbumSelect {
-            sub.push(raw_heap_rect(0, 0, ARTWORK_SIZE as i32, ARTWORK_SIZE as i32));
+            if dragged_item.is_some() {
+                sub.push(raw_heap_rect(0, 0, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32));
+            } else {
+                sub.push(raw_heap_rect(0, 0, ARTWORK_SIZE as i32, ARTWORK_SIZE as i32));
+            }
         }
         hit_test_data.sub_len = sub.len() as c_int;
         hit_test_data.sub = sub.as_ptr();
         
-       
     
         //Draw a border
         canvas.set_blend_mode(BlendMode::Mod);

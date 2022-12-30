@@ -90,11 +90,11 @@ impl<'a> Button<'a> {
                 .contains_point(Point::new(mouse_x, mouse_y))
     }
 
-    pub fn get_hovered_from_hash(buttons: &HashMap<&'a str, Button>, mouse_x: i32, mouse_y: i32) -> &'a str {
+    pub fn get_hovered_from_hash(buttons: &HashMap<&'a str, Button>, mouse_x: i32, mouse_y: i32) -> Option<&'a str> {
         for (button_name, button) in buttons {
-            if button.is_hovering(mouse_x, mouse_y) { return button_name }
+            if button.is_hovering(mouse_x, mouse_y) { return Some(button_name) }
         }
-        "none"
+        None
     }
 }
 
