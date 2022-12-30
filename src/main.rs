@@ -1,10 +1,9 @@
 
 // FRONT BURNER
-// TODO: return to having album index 0 furthest left, temporarily add albums to a new array for reshuffle animation
+// TODO: temporarily add albums to a new array for reshuffle animation
 // TODO: instead of not creating now_playing_resources if not playing, create a dummy value that says something like "not playing"
 // TODO: add gradient at the top of album selection view to make buttons more visible
 // TODO: add a box in the bottom right where users can drag albums to queue them, maybe show a number on the box
-// Albums shrink and follow the cursor when dragged, new albums slide in to fill their place
 // TODO: re-implement variable framerate if necessary
 // TODO: test if it's faster to send all of the data from apple music and then sort it after receiving it
 
@@ -99,7 +98,7 @@ fn main() {
     const THUMBNAIL_SIZE: u32 = ARTWORK_SIZE / 3;
     const I_THUMBNAIL_SIZE: i32 = ARTWORK_SIZE as i32 / 3;
     const THUMBNAIL_SCALE_AMT_HOVER: u32 = 10; // added
-    const THUMBNAIL_SCALE_AMT_DRAG: u32 = 30; // subtracted
+    const THUMBNAIL_SCALE_AMT_DRAG: u32 = 20; // subtracted
 
     // Create the window
     let mut window = video_subsystem.window("micromusic", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -520,11 +519,11 @@ fn main() {
                 );
                 canvas.copy(u_dragged_item.album.artwork(), None, dragged_item_rect).unwrap();
             
-            } else if window_input_focus {
+            } else if window_input_focus && window_rect.contains_point(mouse_state.pos()) {
                 // Enlarge the album artwork that the user is hovering over
                 let target_row = album_view_rows.get_mut(hovered_album_loc[1]);
 
-                if let Some(item) = target_row.and_then(|r| r.get(hovered_album_loc[1])) {
+                if let Some(item) = target_row.and_then(|r| r.get(hovered_album_loc[0])) {
                     if item.x_vel.abs() < 0.1 {
                         let thumbnail_rect = Rect::new(
                             item.x_pos as i32 - THUMBNAIL_SCALE_AMT_HOVER as i32 / 2, 

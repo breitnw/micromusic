@@ -120,11 +120,11 @@ pub fn queue_album(album: String, album_artist: String) {
 pub fn make_dj_playlist() {
     const MAKE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/make_dj_playlist.jxa");
     let script = osascript::JavaScript::new(MAKE_DJ_PLAYLIST_SCRIPT);
-    let _: () = script.execute().unwrap();
+    thread::spawn(move || { let _: () = script.execute().unwrap(); });
 }
 
 pub fn remove_dj_playlist() {
     const REMOVE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/remove_dj_playlist.jxa");
     let script = osascript::JavaScript::new(REMOVE_DJ_PLAYLIST_SCRIPT);
-    let _: () = script.execute().unwrap();
+    thread::spawn(move || { let _: () = script.execute().unwrap(); });
 }
