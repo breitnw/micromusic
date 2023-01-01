@@ -1,11 +1,10 @@
 
 // FRONT BURNER
 // TODO: temporarily add albums to a new array for reshuffle animation
-// TODO: instead of not creating now_playing_resources if not playing, create a dummy value that says something like "not playing"
+// TODO: center "not playing" text
 // TODO: add gradient at the top of album selection view to make buttons more visible
 // TODO: add a box in the bottom right where users can drag albums to queue them, maybe show a number on the box
 // TODO: re-implement variable framerate if necessary
-// TODO: test if it's faster to send all of the data from apple music and then sort it after receiving it
 
 
 // CRASHES
@@ -251,7 +250,7 @@ fn main() {
 
 
     // State variables for the rendering loop
-    let mut now_playing_resources: Option<NowPlayingResourceCollection> = None;
+    let mut now_playing_resources: NowPlayingResourceCollection = NowPlayingResourceCollection::build(None, &texture_creator);
     let mut last_snapshot_time = Instant::now();
     let mut info_scroll_pos: i32 = 0;
     const INFO_SPACING: i32 = 50;
@@ -397,16 +396,17 @@ fn main() {
         
         // If the now playing channel has new data in it, update the player and track data on this thread
         if let Ok(response) = player_rx.try_recv() {
-            if let Some(u_response) = response {
-                if let Some(u_np_resources) = now_playing_resources.as_mut() {
-                    u_np_resources.update(u_response, &texture_creator);
-                } else {
-                    now_playing_resources = Some(NowPlayingResourceCollection::build(u_response, &texture_creator));
-                }
+            // if let Some(u_response) = response {
+            //     if let Some(u_np_resources) = now_playing_resources.as_mut() {
+            //         u_np_resources.update(u_response, &texture_creator);
+            //     } else {
+            //         now_playing_resources = Some(NowPlayingResourceCollection::build(u_response, &texture_creator));
+            //     }
                 
-            } else { 
-                now_playing_resources = None;
-            };
+            // } else { 
+            //     now_playing_resources = None;
+            // };
+            now_playing_resources.update(response, &texture_creator);
             // Update the last snapshot time, used to determine the player position when rendering
             last_snapshot_time = Instant::now();
         }
@@ -546,82 +546,74 @@ fn main() {
         }
 
 
-        // If the player data has been received, run this code
-        if let Some(u_np_resources) = &now_playing_resources {
-            let info_tex = u_np_resources.track_resources.info_texture();
-            let info_qry = info_tex.query();
-            let art_tex = u_np_resources.track_resources.artwork_texture();
-            
-            if u_np_resources.player_info.state() == PlayerState::Playing {
-                info_scroll_pos -= 1; 
-                info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+        // Draw info depending on the received player data
+        let info_tex = now_playing_resources.track_resources.info_texture();
+        let info_qry = info_tex.query();
+        let art_tex = now_playing_resources.track_resources.artwork_texture();
+        
+        if now_playing_resources.player_info.state() == PlayerState::Playing {
+            info_scroll_pos -= 1; 
+            info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+        }
+
+        //Draw the info text, once normally and once shifted to the right for seamless looping
+        engine::copy_unscaled(&info_tex, 
+            info_scroll_pos, 
+            (ARTWORK_SIZE + INFO_PADDING) as i32, 
+            &mut canvas
+        ).unwrap();
+        engine::copy_unscaled(&info_tex, 
+            info_scroll_pos + info_qry.width as i32 + INFO_SPACING, 
+            (ARTWORK_SIZE + INFO_PADDING) as i32, 
+            &mut canvas
+        ).unwrap();
+
+        if current_view == View::Miniplayer {
+            // Draw the album art
+            canvas.copy(art_tex, None, Rect::new(0,0, 
+                ARTWORK_SIZE, 
+                ARTWORK_SIZE
+            )).unwrap();
+
+            //Draw an overlay if the user is hovering over the window
+            //TODO: find a way to avoid nesting this if statement inside the last
+            if window_input_focus && window_rect.contains_point(mouse_state.pos()) || window_interaction_in_progress {
+                // Darken the cover art
+                canvas.set_blend_mode(BlendMode::Mod);
+                canvas.set_draw_color(Color::RGB( 120, 120, 120));
+                canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
+
+                // Draw a progress bar
+                canvas.set_blend_mode(BlendMode::Add);
+                canvas.set_draw_color(Color::RGB(100, 100, 100));
+
+                let percent_elapsed = (now_playing_resources.player_info.pos() 
+                    + if now_playing_resources.player_info.state() == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
+                    / now_playing_resources.track_info.length();
+
+                canvas.draw_line(
+                    Point::new(0, ARTWORK_SIZE as i32 - 1), 
+                    Point::new(
+                        (ARTWORK_SIZE as f64 * percent_elapsed) as i32, 
+                        ARTWORK_SIZE as i32 - 1
+                    )
+                ).unwrap();
+
+                // Update button visibility based on new data
+                buttons.get_mut("next_track").unwrap().active = true;
+                buttons.get_mut("back_track").unwrap().active = true;
+
+                buttons.get_mut("minimize").unwrap().active = true;
+                buttons.get_mut("close").unwrap().active = true;   
+
+                buttons.get_mut("heart_empty").unwrap().active = !now_playing_resources.track_info.loved();
+                buttons.get_mut("heart_filled").unwrap().active = now_playing_resources.track_info.loved();
+
+                buttons.get_mut("album_view").unwrap().active = true;
+
+                buttons.get_mut("play").unwrap().active = now_playing_resources.player_info.state() != PlayerState::Playing;
+                buttons.get_mut("pause").unwrap().active = now_playing_resources.player_info.state() == PlayerState::Playing;
             }
-
-            //Draw the info text, once normally and once shifted to the right for seamless looping
-            engine::copy_unscaled(&info_tex, 
-                info_scroll_pos, 
-                (ARTWORK_SIZE + INFO_PADDING) as i32, 
-                &mut canvas
-            ).unwrap();
-            engine::copy_unscaled(&info_tex, 
-                info_scroll_pos + info_qry.width as i32 + INFO_SPACING, 
-                (ARTWORK_SIZE + INFO_PADDING) as i32, 
-                &mut canvas
-            ).unwrap();
-
-            if current_view == View::Miniplayer {
-                // Draw the album art
-                canvas.copy(art_tex, None, Rect::new(0,0, 
-                    ARTWORK_SIZE, 
-                    ARTWORK_SIZE
-                )).unwrap();
-
-                //Draw an overlay if the user is hovering over the window
-                //TODO: find a way to avoid nesting this if statement inside the last
-                if window_input_focus && window_rect.contains_point(mouse_state.pos()) || window_interaction_in_progress {
-                    // Darken the cover art
-                    canvas.set_blend_mode(BlendMode::Mod);
-                    canvas.set_draw_color(Color::RGB( 120, 120, 120));
-                    canvas.fill_rect(Rect::new(0, 0, ARTWORK_SIZE, ARTWORK_SIZE)).unwrap();
-
-                    // Draw a progress bar
-                    canvas.set_blend_mode(BlendMode::Add);
-                    canvas.set_draw_color(Color::RGB(100, 100, 100));
-
-                    let percent_elapsed = (u_np_resources.player_info.pos() 
-                        + if u_np_resources.player_info.state() == PlayerState::Playing { last_snapshot_time.elapsed().as_secs_f64() } else { 0. })
-                        / u_np_resources.track_info.length();
-
-                    canvas.draw_line(
-                        Point::new(0, ARTWORK_SIZE as i32 - 1), 
-                        Point::new(
-                            (ARTWORK_SIZE as f64 * percent_elapsed) as i32, 
-                            ARTWORK_SIZE as i32 - 1
-                        )
-                    ).unwrap();
-
-                    // Update button visibility based on new data
-                    buttons.get_mut("next_track").unwrap().active = true;
-                    buttons.get_mut("back_track").unwrap().active = true;
-
-                    buttons.get_mut("minimize").unwrap().active = true;
-                    buttons.get_mut("close").unwrap().active = true;   
-
-                    buttons.get_mut("heart_empty").unwrap().active = !u_np_resources.track_info.loved();
-                    buttons.get_mut("heart_filled").unwrap().active = u_np_resources.track_info.loved();
-
-                    buttons.get_mut("album_view").unwrap().active = true;
-
-                    buttons.get_mut("play").unwrap().active = u_np_resources.player_info.state() != PlayerState::Playing;
-                    buttons.get_mut("pause").unwrap().active = u_np_resources.player_info.state() == PlayerState::Playing;
-                }
-            }
-        } else if current_view == View::Miniplayer {
-            // If no album artwork or data is recieved
-            // TODO: This should ideally be unnecessary. Instead, fill u_np_resources with some dummy values
-            buttons.get_mut("minimize").unwrap().active = true;
-            buttons.get_mut("close").unwrap().active = true;
-            buttons.get_mut("album_view").unwrap().active = true;
         }
 
         // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button

@@ -50,7 +50,7 @@ impl TrackInfo {
 }
 
 /// Information about the player itself, including the player position (time elapsed in current song) and state.
-#[derive(Deserialize)]
+#[derive(Deserialize, Copy, Clone)]
 pub struct PlayerInfo {
     pos: f64,
     state: PlayerState,
@@ -99,6 +99,26 @@ impl<'a> TrackResources<'a> {
         })
     }
 
+    pub fn placeholder<T: 'a>(
+        texture_creator: &'a TextureCreator<T>,
+    ) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
+        //Create a placeholder info texture
+        let info_texture = crate::engine::text_to_texture(
+            "not playing",
+            &texture_creator,
+            Color::RGB(255, 255, 255),
+            Color::RGB(0, 0, 0),
+        );
+
+        const PLACEHOLDER_TEX: &'static [u8] = include_bytes!("../assets/placeholder.png");
+        let artwork_texture = texture_creator.load_texture_bytes(&PLACEHOLDER_TEX).unwrap();
+
+        Ok(TrackResources {
+            info_texture,
+            artwork_texture,
+        })
+    }
+
     pub fn info_texture(&self) -> &Texture {
         return &self.info_texture;
     }
@@ -116,26 +136,39 @@ pub struct NowPlayingResourceCollection<'a> {
 
 impl<'a> NowPlayingResourceCollection<'a> {
     pub fn build(
-        response: PDOsascriptResponse,
+        response: Option<PDOsascriptResponse>,
         texture_creator: &'a TextureCreator<WindowContext>,
     ) -> NowPlayingResourceCollection<'a> {
-        let track_resources = TrackResources::new(&response, texture_creator).unwrap();
-        NowPlayingResourceCollection {
-            player_info: response.player_info,
-            track_info: response.track_info,
-            track_resources,
+        if let Some(response) = response {
+            let track_resources = TrackResources::new(&response, texture_creator).unwrap();
+            NowPlayingResourceCollection {
+                player_info: response.player_info,
+                track_info: response.track_info,
+                track_resources,
+            }
+        } else {
+            let track_resources =  TrackResources::placeholder(texture_creator).unwrap();
+            NowPlayingResourceCollection {
+                player_info: PlayerInfo { pos: 0.0, state: PlayerState::Stopped },
+                track_info: TrackInfo { name: "".to_string(), artist: "".to_string(), album: "".to_string(), loved: false, length: 1.0 },
+                track_resources,
+            }
         }
     }
+
     pub fn update(
         &mut self,
-        response: PDOsascriptResponse,
+        response: Option<PDOsascriptResponse>,
         texture_creator: &'a TextureCreator<WindowContext>,
     ) {
         // Determine whether track resources need to be recreated by comparing old player data with new player data
-        if self.track_info != response.track_info {
-            self.track_resources = TrackResources::new(&response, texture_creator).unwrap();
-            self.track_info = response.track_info;
-        }
-        self.player_info = response.player_info;
+        if let Some(res) = response.as_ref() {
+            if self.track_info == res.track_info {
+                self.player_info = res.player_info;
+                return;
+            }
+        } 
+
+        *self = Self::build(response, texture_creator);
     }
 }

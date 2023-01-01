@@ -89,7 +89,15 @@ impl BaseAlbumResources {
         }).collect();
             
         println!("Getting raw data from Apple Music...");
-        let album_data = osascript_requests::get_album_data(album_cache);
+        let mut album_data = osascript_requests::get_album_data(album_cache);
+
+        println!("Removing duplicate albums...");
+        album_data.sort_by(|a, b| 
+            if a.album_artist > b.album_artist || (a.album_artist == b.album_artist && a.album > b.album) { std::cmp::Ordering::Greater } 
+            else if a.album == b.album { std::cmp::Ordering::Equal }
+            else { std::cmp::Ordering::Less }
+        );
+        album_data.dedup_by(|a, b| a.album == b.album && a.album_artist == b.album_artist);
 
         println!("Building resources...");
         let base_album_resources: Vec<BaseAlbumResources> = album_data
