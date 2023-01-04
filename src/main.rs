@@ -1,7 +1,7 @@
 
 // FRONT BURNER
 // TODO: temporarily add albums to a new array for reshuffle animation
-// TODO: center "not playing" text
+// TODO: center "not playing" text (current hack doesn't actually center it) + reset info scroll pos when it's not zero
 // TODO: add gradient at the top of album selection view to make buttons more visible
 // TODO: add a box in the bottom right where users can drag albums to queue them, maybe show a number on the box
 // TODO: re-implement variable framerate if necessary
@@ -16,13 +16,12 @@
 // TODO: Some albums getting rendered multiple times
 
 // BACK BURNER
-// TODO: Add screen for when nothing is playing, make sure to draw overlay buttons
+// TODO: Filter albums by genre
+// TODO: Draw overlay buttons on "not playing" screen
 // TODO: Only re-render info text every frame, not album art
-// TODO: Automatically get text colors based on image / dark or light theme
 // TODO: Remember window position on close
 // TODO: Add a way for user to manually clear caches
 // TODO: Load data directly from cache, then update it when loaded from apple music
-// TODO: build textures asynchronously, evenly distributed over a specified number of threads
 
 
 use std::collections::HashMap;
@@ -98,6 +97,7 @@ fn main() {
     const I_THUMBNAIL_SIZE: i32 = ARTWORK_SIZE as i32 / 3;
     const THUMBNAIL_SCALE_AMT_HOVER: u32 = 10; // added
     const THUMBNAIL_SCALE_AMT_DRAG: u32 = 20; // subtracted
+    const THUMBNAIL_SIZE_DRAG: u32 = THUMBNAIL_SIZE - THUMBNAIL_SCALE_AMT_DRAG;
 
     // Create the window
     let mut window = video_subsystem.window("micromusic", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -176,8 +176,8 @@ fn main() {
         }).collect()
     }
 
-    const ICON_COLOR_MOD_DEFAULT: u8 = 100;
-    const ICON_COLOR_MOD_HOVER: u8 = 200;
+    const ICON_COLOR_MOD_DEFAULT: u8 = 150;
+    const ICON_COLOR_MOD_HOVER: u8 = 255;
     let icon_textures_default = load_icons(ICON_COLOR_MOD_DEFAULT, BlendMode::Add, &texture_creator);
     let icon_textures_hover = load_icons(ICON_COLOR_MOD_HOVER, BlendMode::Add, &texture_creator);
 
@@ -215,6 +215,7 @@ fn main() {
         &icon_textures_hover["queue_open.png"], 
         &icon_textures_hover["queue_open.png"], 
     ));
+    let mut queue_button_squash_frame = 0;
     
     // Spawn a thread to get all album resources from Apple Music
     let (album_tx, album_rx) = mpsc::channel();
@@ -225,11 +226,23 @@ fn main() {
     
 
     // Data for album select screen (Rc necessary because Queue requires Clone and references will go out of scope)
+    enum ItemState {
+        Default,
+        Dragged,
+        Freeze { timer: u32},
+        Anim {
+            duration: u32,
+            current: u32, 
+            x_curve: Box<dyn Fn(f32) -> f32>,
+            y_curve: Box<dyn Fn(f32) -> f32>, 
+            scale_curve: Box<dyn Fn(f32) -> f32>,
+        },
+    }
     struct AlbumViewItem<'a> { 
         pub album: Rc<AlbumResources<'a>>, 
-        pub x_pos: f32, 
         pub x_vel: f32,
-        pub freeze_timer: u32,
+        pub x_pos: f32,
+        pub state: ItemState
     }
     impl AlbumViewItem<'_> {
         fn get_target_pos(item_col_i: usize, drag_placeholder_x: Option<usize>) -> usize {
@@ -239,7 +252,55 @@ fn main() {
                 item_col_i += 1;
             }
             item_col_i as usize * ARTWORK_SIZE as usize / 3
-            
+        }
+        fn update(&mut self, target_x: f32) {
+            let dist_from_target = self.x_pos - target_x;
+
+            match &mut self.state {
+                // Move the thumbnail according to its position and velocity
+                ItemState::Default => {
+                    if dist_from_target > 2.0 {
+                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * -15.0;
+                    } else if dist_from_target < -2.0 {
+                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * 30.0;
+                    } else {
+                        self.x_vel = 0.0;
+                        self.x_pos = target_x;
+                    }
+                    self.x_pos += self.x_vel;
+                }
+                ItemState::Freeze { timer } => {
+                    // Freeze any thumbnails with the freeze timers greater than 0. Primarily used to stagger movements
+                    if *timer > 0 {
+                        *timer -= 1;
+                    } else {
+                        self.state = ItemState::Default;
+                    }
+                }
+                ItemState::Anim { duration, current, .. } => {
+                    if current < duration {
+                        *current += 1;
+                    } else {
+                        self.state = ItemState::Default;
+                    }
+                }
+                _ => ()
+            }
+        }
+        fn get_anim_pos_and_scale(&self) -> Option<([f32; 2], f32)> {
+            if let ItemState::Anim { 
+                duration, 
+                current, 
+                x_curve, 
+                y_curve, 
+                scale_curve,
+                ..
+            } = &self.state {
+                let progress = *current as f32 / *duration as f32;
+                return Some(([x_curve(progress), y_curve(progress)], scale_curve(progress)));
+            } else {
+                return None;
+            }
         }
     }
     let mut album_view_queue: Queue<Rc<AlbumResources>> = Queue::new();
@@ -247,6 +308,7 @@ fn main() {
     let mut dragged_item: Option<AlbumViewItem> = None;
     let mut dragged_item_pos: [f32; 2] = [0.0, 0.0];
     let mut drag_placeholder_loc: Option<[usize; 2]> = None;
+    let mut queueing_albums: Vec<AlbumViewItem> = Vec::new();
 
 
     // State variables for the rendering loop
@@ -282,7 +344,8 @@ fn main() {
                     let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
                     
                     if !target_row.is_empty() {
-                        let target_item = target_row.remove(hovered_album_loc.x as usize);
+                        let mut target_item = target_row.remove(hovered_album_loc.x as usize);
+                        target_item.state = ItemState::Dragged;
                         dragged_item_pos = [
                             target_item.x_pos + (THUMBNAIL_SCALE_AMT_DRAG / 2) as f32,
                             (I_THUMBNAIL_SIZE * hovered_album_loc.y) as f32 + (THUMBNAIL_SCALE_AMT_DRAG / 2) as f32
@@ -291,9 +354,9 @@ fn main() {
 
                         target_row.push(AlbumViewItem {
                             album: album_view_queue.remove().unwrap(),
+                            state: ItemState::Default,
                             x_pos: ARTWORK_SIZE as f32,
                             x_vel: 0.0,
-                            freeze_timer: 0,
                         });
                     }
                 }
@@ -303,7 +366,41 @@ fn main() {
                 let loc = drag_placeholder_loc
                     .filter(|loc| (loc[1]) < 3 && (loc[0]) < 3);
 
-                if let Some(mut u_dragged_item) = dragged_item {
+                if let Some(mut u_dragged_item) = dragged_item.take() {
+                    if buttons["queue"].is_hovering(mouse_state.x(), mouse_state.y()) {
+                        // Constants
+                        const START_SCALE: f32 = THUMBNAIL_SIZE_DRAG as f32 / THUMBNAIL_SIZE as f32;
+                        const START_OFFSET: f32 = THUMBNAIL_SIZE_DRAG as f32 / 2.0;
+                        
+                        // The starting x and y positions of the thumbnail
+                        let (x, y) = (dragged_item_pos[0] + START_OFFSET, dragged_item_pos[1] + START_OFFSET);
+
+                        // Quadratic data for vertical animation curve
+                        const QUEUE_BUTTON_X: f32 = ARTWORK_SIZE as f32 - 20.0;
+                        const QUEUE_BUTTON_Y: f32 = ARTWORK_SIZE as f32 - 20.0;
+                        const ANIM_ARC_HEIGHT: f32 = 150.0;
+                        
+                        let a = QUEUE_BUTTON_Y - y;
+                        let b = -2.0 * (ANIM_ARC_HEIGHT - y);
+                        let c = ANIM_ARC_HEIGHT - y;
+                        let vertex_t = (-b + (b.powi(2) - 4.0 * a * c).sqrt()) / (2.0 * a);
+                        let scale_y = (y - ANIM_ARC_HEIGHT) / vertex_t.powi(2);
+
+                        // Set the dragged item's state to animate
+                        u_dragged_item.state = ItemState::Anim { 
+                            duration: 15, 
+                            current: 0, 
+                            x_curve: Box::new(move |t: f32| x + t * (QUEUE_BUTTON_X - x)), 
+                            y_curve: Box::new(move |t: f32| scale_y * (t - vertex_t).powi(2) + ANIM_ARC_HEIGHT), 
+                            scale_curve: Box::new(|t: f32| (1.0 - t) * START_SCALE), 
+                        };
+                        queueing_albums.push(u_dragged_item);
+
+                        // Freeze the next item in the third row until the animation finishes
+                        album_view_rows[2][2].state = ItemState::Freeze { timer: 25 };
+                        continue;
+                    }
+                    u_dragged_item.state = ItemState::Default;
                     if let Some(loc) = loc {
                         u_dragged_item.x_pos = AlbumViewItem::get_target_pos(loc[0], None) as f32;
                         album_view_rows[loc[1]].insert(loc[0], u_dragged_item);
@@ -339,7 +436,7 @@ fn main() {
                                         album: a, 
                                         x_pos: AlbumViewItem::get_target_pos(i / 3, None) as f32 + ARTWORK_SIZE as f32, 
                                         x_vel: 0.0,
-                                        freeze_timer: i as u32 % 3 * 3 + i as u32 / 3,
+                                        state: ItemState::Freeze { timer: i as u32 % 3 * 3 + i as u32 / 3 }
                                     })
                                 } else {
                                     break;
@@ -352,24 +449,7 @@ fn main() {
                         }
                         _ => {}
                     }
-                    None => {
-                        // if current_view == View::AlbumSelect && artwork_rect.contains_point(mouse_state.pos()) {
-                        //     let hovered_album_loc = mouse_state.pos() / I_THUMBNAIL_SIZE;
-                        //     let target_row = album_view_rows.get_mut(hovered_album_loc.y as usize).unwrap();
-                            
-                        //     let clicked_album = target_row.remove(hovered_album_loc.x as usize).album;
-
-                        //     osascript_requests::queue_album(clicked_album.title().to_string(), clicked_album.album_artist().to_string());
-
-                        //     album_view_queue.add(clicked_album).unwrap();
-                        //     target_row.push(AlbumViewItem {
-                        //         album: album_view_queue.remove().unwrap(),
-                        //         x_pos: ARTWORK_SIZE as f32,
-                        //         x_vel: 0.0,
-                        //         freeze_timer: 0,
-                        //     });
-                        // }
-                    }
+                    None => ()
                 }
             }
             Event::Window { win_event, .. } => {
@@ -396,16 +476,6 @@ fn main() {
         
         // If the now playing channel has new data in it, update the player and track data on this thread
         if let Ok(response) = player_rx.try_recv() {
-            // if let Some(u_response) = response {
-            //     if let Some(u_np_resources) = now_playing_resources.as_mut() {
-            //         u_np_resources.update(u_response, &texture_creator);
-            //     } else {
-            //         now_playing_resources = Some(NowPlayingResourceCollection::build(u_response, &texture_creator));
-            //     }
-                
-            // } else { 
-            //     now_playing_resources = None;
-            // };
             now_playing_resources.update(response, &texture_creator);
             // Update the last snapshot time, used to determine the player position when rendering
             last_snapshot_time = Instant::now();
@@ -428,7 +498,7 @@ fn main() {
                         album: a, 
                         x_pos: AlbumViewItem::get_target_pos(i / 3, None) as f32, 
                         x_vel: 0.0,
-                        freeze_timer: 0,
+                        state: ItemState::Default,
                     })
                 } else {
                     break;
@@ -459,39 +529,16 @@ fn main() {
             ];
             drag_placeholder_loc = dragged_item.as_ref().map(|_| hovered_album_loc);
 
-            // Update the positions of all of the thumbnails
+            // Update the positions of all of the thumbnails and draw them
             for (row_y, row) in album_view_rows.iter_mut().enumerate() {
                 for (item_x, item) in row.iter_mut().enumerate() {
                     let drag_placeholder_x = drag_placeholder_loc.filter(|loc| loc[1] == row_y).map(|loc| loc[0]);
+                    let target_x = AlbumViewItem::get_target_pos(item_x, drag_placeholder_x) as f32;
+                    item.update(target_x);
 
-                    let target_pos = AlbumViewItem::get_target_pos(item_x, drag_placeholder_x) as f32;
-                    let dist_from_target = item.x_pos - target_pos;
-
-                    // Freeze any thumbnails with the freeze timers greater than 0. Primarily used to stagger movements
-                    if item.freeze_timer > 0 {
-                        item.x_vel = 0.0;
-                        item.freeze_timer -= 1;
-                    } 
-                    // Otherwise, move the thumbnail according to its position and velocity
-                    // TODO: if velocity algorithm isn't changed, it's unnecessary to store x_vel per-item
-                    else if dist_from_target > 2.0 {
-                        item.x_vel = (dist_from_target / 100.0).abs().sqrt() * -15.0;
-                    } else if dist_from_target < -2.0 {
-                        item.x_vel = (dist_from_target / 100.0).abs().sqrt() * 30.0;
-                    } else {
-                        item.x_vel = 0.0;
-                        item.x_pos = target_pos;
-                    }
-                    item.x_pos += item.x_vel;
-                }
-            }
-
-            // Draw all of the regular-scale thumbnails
-            for (y, row) in album_view_rows.iter().enumerate() {
-                for item in row {
                     let thumbnail_rect = Rect::new(
                         item.x_pos as i32,
-                        I_THUMBNAIL_SIZE * y as i32, 
+                        I_THUMBNAIL_SIZE * row_y as i32, 
                         THUMBNAIL_SIZE, 
                         THUMBNAIL_SIZE
                     );
@@ -502,7 +549,6 @@ fn main() {
             // Draw the item that is currently being dragged, if there is one
             if let Some(u_dragged_item) = dragged_item.as_ref() {
                 const DRAG_SPEED_MULTIPLIER: f32 = 0.6;
-                const THUMBNAIL_SIZE_DRAG: u32 = THUMBNAIL_SIZE - THUMBNAIL_SCALE_AMT_DRAG;
 
                 let target_pos = mouse_state.pos() - Point::new(THUMBNAIL_SIZE_DRAG as i32 / 2, THUMBNAIL_SIZE_DRAG as i32 / 2);
                 let direction = [target_pos.x() as f32 - dragged_item_pos[0], target_pos.y() as f32 - dragged_item_pos[1]];
@@ -522,7 +568,7 @@ fn main() {
                 let target_row = album_view_rows.get_mut(hovered_album_loc[1]);
 
                 if let Some(item) = target_row.and_then(|r| r.get(hovered_album_loc[0])) {
-                    if item.x_vel.abs() < 0.1 {
+                    if item.x_vel.abs() < 0.1 && matches!(item.state, ItemState::Default) {
                         let thumbnail_rect = Rect::new(
                             item.x_pos as i32 - THUMBNAIL_SCALE_AMT_HOVER as i32 / 2, 
                             I_THUMBNAIL_SIZE * hovered_album_loc[1] as i32 - THUMBNAIL_SCALE_AMT_HOVER as i32 / 2, 
@@ -534,12 +580,46 @@ fn main() {
                 }
             }
 
+            buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_closed.png"];
+            for i in 0..queueing_albums.len() {
+                buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_open.png"];
+                queueing_albums[i].update(0.0);
+                if let Some((pos, scale)) = queueing_albums[i].get_anim_pos_and_scale() {
+                    let scale = (THUMBNAIL_SIZE as f32 * scale) as u32;
+                    let thumbnail_rect = Rect::new(
+                        pos[0] as i32 - scale as i32 / 2,
+                        pos[1] as i32 - scale as i32 / 2, 
+                        scale, 
+                        scale,
+                    );
+                    canvas.copy(queueing_albums[i].album.artwork(), None, thumbnail_rect).unwrap();
+                } else {
+                    queue_button_squash_frame = 2;
+                    let album = queueing_albums.remove(i).album;
+                    osascript_requests::queue_album(album.title().to_string(), album.album_artist().to_string());
+                    album_view_queue.add(album).unwrap();
+                }
+            }
+
             buttons.get_mut("minimize").unwrap().active = true;
             buttons.get_mut("close").unwrap().active = true;  
             buttons.get_mut("miniplayer_view").unwrap().active = true;
             buttons.get_mut("reshuffle").unwrap().active = true;
 
             buttons.get_mut("queue").unwrap().active = true;
+
+            // Squash animation for the queue button after an album is queued
+            match queue_button_squash_frame {
+                2 => {
+                    buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_squashed_2.png"];
+                    queue_button_squash_frame -= 1;
+                }
+                1 => {
+                    buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_squashed_1.png"];
+                    queue_button_squash_frame -= 1;
+                }
+                _ => {}
+            }
 
             canvas.set_draw_color(Color::BLACK);
             canvas.fill_rect(Rect::new(0, ARTWORK_SIZE as i32, ARTWORK_SIZE, INFO_AREA_HEIGHT)).unwrap();

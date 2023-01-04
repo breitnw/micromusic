@@ -26,9 +26,9 @@ pub struct Button<'a> {
     pub collision_rect: Rect,
     render_rect: Rect,
     pub active: bool,
-    texture_default: &'a Texture<'a>,
-    texture_hover: &'a Texture<'a>,
-    texture_pressed: &'a Texture<'a>,
+    pub texture_default: &'a Texture<'a>,
+    pub texture_hover: &'a Texture<'a>,
+    pub texture_pressed: &'a Texture<'a>,
 }
 
 impl<'a> Button<'a> {

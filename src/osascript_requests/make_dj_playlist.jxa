@@ -9,4 +9,4 @@ while (app.playlists[playlistName].exists()) {
 
 let pl = app.UserPlaylist().make();
 pl.name = playlistName
-pl.description = "Your micromusic queue. There's no need to touch this playlist! It'll automatically be deleted when micromusic is closed.";
+pl.description = "Your micromusic queue. There's no need to touch this playlist!";

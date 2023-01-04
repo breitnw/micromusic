@@ -104,7 +104,7 @@ impl<'a> TrackResources<'a> {
     ) -> Result<TrackResources<'a>, Box<dyn std::error::Error>> {
         //Create a placeholder info texture
         let info_texture = crate::engine::text_to_texture(
-            "not playing",
+            "        not playing",
             &texture_creator,
             Color::RGB(255, 255, 255),
             Color::RGB(0, 0, 0),
