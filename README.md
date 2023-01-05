@@ -3,7 +3,7 @@ A tiny, lightweight miniplayer for Apple Music written in Rust with SDL2. Microm
 
 ![micromusic 0.2.0 in use](https://user-images.githubusercontent.com/29758429/210676224-7c595c26-bee1-4359-b41a-eeaf79173818.gif)
 
-Pressing the button in the top-right will lead you to the brand-new library screen! The first time you're opening this page, it might take a little while to load, since micromusic needs to cache the artwork of all of the albums in your library. To queue albums, simply drag them to the box in the bottom-right and let go—they're added to a temporary playlist in your Apple Music library, so your extended listening sessions can go uninterrupted.
+Pressing the button in the top-left will lead you to the brand-new library screen! The first time you're opening this page, it might take a little while to load, since micromusic needs to cache the artwork of all of the albums in your library. To queue albums, simply drag them to the box in the bottom-right and let go—they're added to a temporary playlist in your Apple Music library, so your extended listening sessions can go uninterrupted.
 
 To make sure you're always listening to something fresh, micromusic shuffles all of the albums in your library, displaying nine at a time. Don't like the ones it picks? simply drag albums outside of the app to remove them, or press the "shuffle" button (second from the left) for a fresh set of nine.
 
