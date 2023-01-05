@@ -581,6 +581,9 @@ fn main() {
             }
 
             buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_closed.png"];
+            buttons.get_mut("queue").unwrap().texture_hover = &icon_textures_hover["queue_open.png"];
+            buttons.get_mut("queue").unwrap().texture_pressed = &icon_textures_hover["queue_open.png"];
+
             for i in 0..queueing_albums.len() {
                 buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_open.png"];
                 queueing_albums[i].update(0.0);
@@ -612,10 +615,14 @@ fn main() {
             match queue_button_squash_frame {
                 2 => {
                     buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_squashed_2.png"];
+                    buttons.get_mut("queue").unwrap().texture_hover = &icon_textures_hover["queue_squashed_2.png"];
+                    buttons.get_mut("queue").unwrap().texture_pressed = &icon_textures_hover["queue_squashed_2.png"];
                     queue_button_squash_frame -= 1;
                 }
                 1 => {
                     buttons.get_mut("queue").unwrap().texture_default = &icon_textures_default["queue_squashed_1.png"];
+                    buttons.get_mut("queue").unwrap().texture_hover = &icon_textures_hover["queue_squashed_1.png"];
+                    buttons.get_mut("queue").unwrap().texture_pressed = &icon_textures_hover["queue_squashed_1.png"];
                     queue_button_squash_frame -= 1;
                 }
                 _ => {}
