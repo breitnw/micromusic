@@ -11,4 +11,4 @@ To make sure you're always listening to something fresh, micromusic shuffles all
 
 This application has only been tested with Apple Music on MacOS Monterey. Since it uses AppleScript to get player data, it will not work with other operating systems or music software. It will likely work on other versions of MacOS, but there aren't any guarantees. 
 
-If you want to compile from source, you'll first need to install the SDL2 headers. One way to do this is with `brew install sdl2`.
+If you want to compile from source, you'll first need to install the SDL2 headers. One way to do this is with `brew install sdl2`, and then change the variable `include_path` in `build.rs` to the include path used by Homebrew (on M1 devices, this should be `/opt/homebrew/include`). You'll also need to add Homebrew's library installation directory (`/opt/homebrew/lib` on M1 devices) to your library search path, which can generally be done via the `LIBRARY_PATH` environment variable. 

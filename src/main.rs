@@ -1,9 +1,9 @@
 
 // FRONT BURNER
+// TODO: Try sending seperate requests more often to get data on whether it's playing or paused
 // TODO: temporarily add albums to a new array for reshuffle animation
 // TODO: center "not playing" text (current hack doesn't actually center it) + reset info scroll pos when it's not zero
 // TODO: add gradient at the top of album selection view to make buttons more visible
-// TODO: add a box in the bottom right where users can drag albums to queue them, maybe show a number on the box
 // TODO: re-implement variable framerate if necessary
 
 
@@ -16,6 +16,7 @@
 // TODO: Some albums getting rendered multiple times
 
 // BACK BURNER
+// TODO: show a number on queue box
 // TODO: Filter albums by genre
 // TODO: Draw overlay buttons on "not playing" screen
 // TODO: Only re-render info text every frame, not album art
