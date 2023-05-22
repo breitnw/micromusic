@@ -5,8 +5,8 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use crate::player_data::PDOsascriptResponse;
 use crate::album_data::ADOsascriptResponse;
+use crate::player_data::PDOsascriptResponse;
 
 type PlayerDataSender = Sender<Option<PDOsascriptResponse>>;
 
@@ -91,11 +91,15 @@ struct GetAlbumDataParams {
     cached_albums: Vec<String>,
 }
 
-/// Gets data for the album selection screen. Should only be run one time at the start of the program. 
+/// Gets data for the album selection screen. Should only be run one time at the start of the program.
 pub fn get_album_data(album_cache: Vec<String>) -> Vec<ADOsascriptResponse> {
     const ALBUM_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_album_data.jxa");
     let script = osascript::JavaScript::new(ALBUM_DATA_SCRIPT);
-    let result: Vec<ADOsascriptResponse> = script.execute_with_params(GetAlbumDataParams { cached_albums: album_cache }).unwrap();
+    let result: Vec<ADOsascriptResponse> = script
+        .execute_with_params(GetAlbumDataParams {
+            cached_albums: album_cache,
+        })
+        .unwrap();
     result
 }
 
@@ -110,18 +114,30 @@ pub fn queue_album(album: String, album_artist: String) {
     let script = osascript::JavaScript::new(ALBUM_PLAY_SCRIPT);
 
     thread::spawn(move || {
-        let _: () = script.execute_with_params(PlayAlbumParams { album, album_artist }).unwrap();
+        let _: () = script
+            .execute_with_params(PlayAlbumParams {
+                album,
+                album_artist,
+            })
+            .unwrap();
     });
 }
 
 pub fn make_dj_playlist() {
-    const MAKE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/make_dj_playlist.jxa");
+    const MAKE_DJ_PLAYLIST_SCRIPT: &'static str =
+        include_str!("osascript_requests/make_dj_playlist.jxa");
     let script = osascript::JavaScript::new(MAKE_DJ_PLAYLIST_SCRIPT);
-    thread::spawn(move || { let _: () = script.execute().unwrap(); });
+    thread::spawn(move || {
+        let _: () = script.execute().unwrap();
+    });
 }
 
 pub fn remove_dj_playlist() {
-    const REMOVE_DJ_PLAYLIST_SCRIPT: &'static str = include_str!("osascript_requests/remove_dj_playlist.jxa");
+    const REMOVE_DJ_PLAYLIST_SCRIPT: &'static str =
+        include_str!("osascript_requests/remove_dj_playlist.jxa");
     let script = osascript::JavaScript::new(REMOVE_DJ_PLAYLIST_SCRIPT);
-    thread::spawn(move || { let _: () = script.execute().unwrap(); });
+    thread::spawn(move || {
+        let _: () = script.execute().unwrap();
+    });
 }
+

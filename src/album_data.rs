@@ -64,7 +64,7 @@ impl BaseAlbumResources {
         }
     }
 
-    pub fn construct_artwork<'a, T>(self, texture_creator: &'a TextureCreator<T>) -> AlbumResources {
+    pub fn construct_artwork<T>(self, texture_creator: &TextureCreator<T>) -> AlbumResources {
         let artwork = texture_creator.load_texture(&self.artwork_file_path).unwrap();  // Should never panic
         AlbumResources {
             base_resources: self,
