@@ -11,6 +11,9 @@ for (let i = 0; i < player_state.length; i++) {
 }
 player_state = player_state.join("");
 
+current_playlist = app.currentPlaylist.name();
+dj_active = current_playlist === "micromusic DJ"
+
 return {
     track_info: {
         name: track.name(),
@@ -22,6 +25,7 @@ return {
     },
     player_info: {
         pos: app.playerPosition(),
+        dj_active: dj_active,
         state: player_state,
     },
     track_artwork_data: artwork.rawData(),

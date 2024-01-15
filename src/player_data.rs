@@ -53,9 +53,11 @@ impl TrackInfo {
 #[derive(Deserialize, Copy, Clone)]
 pub struct PlayerInfo {
     pos: f64,
+    dj_active: bool,
     state: PlayerState,
 }
 impl PlayerInfo {
+    pub fn dj_active(&self) -> bool { return self.dj_active; }
     pub fn pos(&self) -> f64 {
         return self.pos;
     }
@@ -149,7 +151,7 @@ impl<'a> NowPlayingResourceCollection<'a> {
         } else {
             let track_resources =  TrackResources::placeholder(texture_creator).unwrap();
             NowPlayingResourceCollection {
-                player_info: PlayerInfo { pos: 0.0, state: PlayerState::Stopped },
+                player_info: PlayerInfo { pos: 0.0, dj_active: false, state: PlayerState::Stopped },
                 track_info: TrackInfo { name: "".to_string(), artist: "".to_string(), album: "".to_string(), loved: false, length: 1.0 },
                 track_resources,
             }

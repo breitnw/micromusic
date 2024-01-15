@@ -12,7 +12,9 @@ type PlayerDataSender = Sender<Option<PDOsascriptResponse>>;
 
 /// Returns information on the state of the music player
 fn get_player_data() -> Option<PDOsascriptResponse> {
-    const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data.jxa");
+    // TODO: make it so that this is toggled based on OS
+    const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data_sonoma.jxa");
+    // const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_DATA_SCRIPT);
     script.execute().ok()
 }
@@ -47,6 +49,24 @@ pub fn send_player_data_loop(tx: PlayerDataSender) {
     });
 }
 
+/// Clears all played tracks from the micromusic DJ playlist. Does nothing if there is an error.
+fn clear_played_tracks() {
+    const CLEAR_PLAYED_SCRIPT: &'static str = include_str!("osascript_requests/clear_played_tracks.jxa");
+    let script = osascript::JavaScript::new(CLEAR_PLAYED_SCRIPT);
+    let _: () = script.execute().unwrap_or_else(|e| println!("Unable to clear played tracks: {e}"));
+}
+
+/// Periodically runs a JXA script to clear played tracks from the micromusic DJ playlist
+pub fn clear_played_tracks_loop() {
+    thread::spawn(move || {
+        loop {
+            clear_played_tracks();
+            // If the track is almost over, don't sleep the full duration so the info can be updated immediately after it ends
+            thread::sleep(Duration::from_secs_f64(10.0));
+        }
+    });
+}
+
 #[allow(dead_code)]
 pub enum JXACommand {
     PlayPause,
@@ -64,8 +84,10 @@ impl JXACommand {
             JXACommand::NextTrack => "Application('Music').nextTrack()",
             JXACommand::PreviousTrack => "Application('Music').previousTrack()",
             JXACommand::BackTrack => "Application('Music').backTrack()",
-            JXACommand::Love => "Application('Music').currentTrack.loved = true",
-            JXACommand::Unlove => "Application('Music').currentTrack.loved = false",
+            // JXACommand::Love => "Application('Music').currentTrack.loved = true",
+            // JXACommand::Unlove => "Application('Music').currentTrack.loved = false",
+            JXACommand::Love => "Application('Music').currentTrack.favorited = true", // TODO: Toggle for sonoma
+            JXACommand::Unlove => "Application('Music').currentTrack.favorited = false",
         }
     }
 }

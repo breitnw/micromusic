@@ -1,0 +1,24 @@
+var app = Application('Music');
+var curName = app.currentTrack.name();
+var curArtist = app.currentTrack.artist();
+var curAlbum = app.currentTrack.album();
+
+if (app.playerState() !== "stopped") {
+    var pl = app.currentPlaylist;
+
+    if (pl.name() === "micromusic DJ" && pl.tracks().length > 0) {
+        var nextTrack = pl.tracks()[0]
+        while (
+            nextTrack.name() !== curName
+            || nextTrack.artist() !== curArtist
+            || nextTrack.album() !== curAlbum
+            ) {
+            nextTrack.delete({from: pl});
+            if (pl.tracks().length > 0) {
+                nextTrack = pl.tracks()[0];
+            } else {
+                break;
+            }
+        }
+    }
+}

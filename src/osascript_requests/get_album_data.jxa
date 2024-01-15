@@ -20,6 +20,10 @@ for (var i = 0; i < tracks.length; i++) {
 
         let artworkData = null;
         if (!cachedAlbums.has(albumArtist + album)) {
+            if (tracks[i].artworks.length === 0) {
+                // just ignore tracks without artwork
+                continue;
+            }
             artworkData = tracks[i].artworks[0].rawData()
         }
         albums.push({
