@@ -14,13 +14,21 @@ player_state = player_state.join("");
 current_playlist = app.currentPlaylist.name();
 dj_active = current_playlist === "micromusic DJ"
 
+try {
+    // before sonoma
+    loved = track.loved()
+} catch {
+    // on sonoma
+    loved = track.favorited()
+}
+
 return {
     track_info: {
         name: track.name(),
         artist: track.artist(),
         album_artist: track.albumArtist(),
         album: track.album(),
-        loved: track.loved(),
+        loved: loved,
         length: track.finish(),
     },
     player_info: {

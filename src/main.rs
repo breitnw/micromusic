@@ -1,18 +1,14 @@
 // FRONT BURNER
+// TODO: Dynamic FPS, 60fps enabled when dragging
 // TODO: Try sending separate requests more often to get data on whether it's playing or paused
 // TODO: temporarily add albums to a new array for reshuffle animation
 // TODO: center "not playing" text (current hack doesn't actually center it) + reset info scroll pos when it's not zero
-// TODO: add gradient at the top of album selection view to make buttons more visible
-
-// TODO: DON'T clear DJ on startup if it's currently playing
-// TODO: Click the DJ button to play/pause
 
 // CRASHES
 // TODO: Probably panic the whole program when the secondary thread panics
 // TODO: Fix crash when clicking heart button while nothing's playing
 
 // FIXES
-// TODO: Antialiasing issues moving back and forth between displays (try regenerating texture or setting hint when changing screens)
 // TODO: Some albums getting rendered multiple times
 
 // BACK BURNER
@@ -56,6 +52,7 @@ mod osascript_requests;
 use osascript_requests::JXACommand;
 mod engine;
 use engine::Button;
+use engine::DrawShadowed;
 
 use crate::album_data::BaseAlbumResources;
 use crate::player_data::NowPlayingResourceCollection;
@@ -68,7 +65,6 @@ enum View {
 
 // PRIMARY THREAD: Renders a SDL2 interface for users to interact with the application
 fn main() {
-
     // INITIALIZATION ==================================================================================================
 
     sdl2::hint::set("SDL_VIDEO_ALLOW_SCREENSAVER", "1");
@@ -93,7 +89,6 @@ fn main() {
         album_tx.send(base_album_resources).unwrap();
     });
 
-
     // CONSTANTS =======================================================================================================
 
     // Sizes for the window and canvas
@@ -112,6 +107,8 @@ fn main() {
     const THUMBNAIL_SCALE_AMT_DRAG: u32 = 20; // subtracted
     const THUMBNAIL_SIZE_DRAG: u32 = THUMBNAIL_SIZE - THUMBNAIL_SCALE_AMT_DRAG;
 
+    const FRAMES_PER_SECOND: u64 = 30;
+    const DT: f32 = 1. / FRAMES_PER_SECOND as f32;
 
     // WINDOW CREATION =================================================================================================
 
@@ -181,6 +178,40 @@ fn main() {
     engine::update_canvas_scale(&mut canvas, WINDOW_WIDTH, WINDOW_HEIGHT);
     canvas.clear();
     canvas.present();
+
+    // Load the gradient texture
+    // TODO: find a better place for this
+    // maybe merge animation functionality with album art animations via a trait
+    const GRADIENT_MAX_ALPHA: u8 = 140;
+    const GRADIENT_ALPHA_SPEED: f32 = 3.0;
+    const ENABLE_TOP_GRADIENT_THRESHOLD: i32 = ARTWORK_SIZE as i32 / 9;
+    const ENABLE_BOTTOM_GRADIENT_THRESHOLD: i32 = ARTWORK_SIZE as i32 * 4 / 5;
+
+    // GRADIENT -------------------------------------------------------------------------------
+
+    const GRADIENT_BYTES: &'static [u8] = include_bytes!("../assets/gradient.png");
+
+    let mut top_gradient_alpha: u8 = 0;
+    let mut bottom_gradient_alpha: u8 = 0;
+
+    let top_gradient_rect = Rect::new(0, 0, WINDOW_WIDTH, THUMBNAIL_SIZE);
+    let bottom_gradient_rect = Rect::new(0, THUMBNAIL_SIZE as i32 * 2, WINDOW_WIDTH, THUMBNAIL_SIZE);
+
+    // gradient for buttons at the top of the screen
+    let mut gradient = texture_creator.load_texture_bytes(GRADIENT_BYTES).unwrap();
+    gradient.set_alpha_mod(0);
+    // gradient for queue button at the bottom of the screen
+    let mut bottom_gradient = texture_creator.load_texture_bytes(GRADIENT_BYTES).unwrap();
+    bottom_gradient.set_alpha_mod(0);
+
+    // SHADOW ---------------------------------------------------------------------------------
+
+    const SHADOW_BYTES: &'static [u8] = include_bytes!("../assets/shadow.png");
+    const SHADOW_OFFSET: i32 = 0;
+    const SHADOW_RADIUS: u32 = 30;
+    // const SHADOW_ALPHA: i32 = 128; 
+
+    let shadow = texture_creator.load_texture_bytes(SHADOW_BYTES).unwrap();
 
     // ICON TEXTURE LOADING --------------------------------------------------------------------------------------------
 
@@ -270,11 +301,11 @@ fn main() {
         Default,
         Dragged,
         Freeze {
-            timer: u32,
+            timer: f32,
         },
         Anim {
-            duration: u32,
-            current: u32,
+            duration: f32,
+            current: f32,
             x_curve: Box<dyn Fn(f32) -> f32>,
             y_curve: Box<dyn Fn(f32) -> f32>,
             scale_curve: Box<dyn Fn(f32) -> f32>,
@@ -302,20 +333,21 @@ fn main() {
                 // Move the thumbnail according to its position and velocity
                 ItemState::Default => {
                     if dist_from_target > 2.0 {
-                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * -15.0;
+                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * -450.;
                     } else if dist_from_target < -2.0 {
-                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * 30.0;
+                        self.x_vel = (dist_from_target / 100.0).abs().sqrt() * 900.;
                     } else {
                         self.x_vel = 0.0;
                         self.x_pos = target_x;
                     }
-                    self.x_pos += self.x_vel;
+                    self.x_pos += self.x_vel * DT;
                 }
                 ItemState::Freeze { timer } => {
                     // Freeze any thumbnails with the freeze timers greater than 0. Primarily used to stagger movements
-                    if *timer > 0 {
-                        *timer -= 1;
+                    if *timer > 0. {
+                        *timer -= DT;
                     } else {
+                        *timer = 0.;
                         self.state = ItemState::Default;
                     }
                 }
@@ -323,7 +355,7 @@ fn main() {
                     duration, current, ..
                 } => {
                     if current < duration {
-                        *current += 1;
+                        *current += DT;
                     } else {
                         self.state = ItemState::Default;
                     }
@@ -341,14 +373,14 @@ fn main() {
                 ..
             } = &self.state
             {
-                let progress = *current as f32 / *duration as f32;
+                let progress = *current / *duration;
                 Some((
                     [x_curve(progress), y_curve(progress)],
                     scale_curve(progress),
                 ))
             } else {
                 None
-            }
+            };
         }
     }
 
@@ -365,7 +397,7 @@ fn main() {
     let mut now_playing_resources: NowPlayingResourceCollection =
         NowPlayingResourceCollection::build(None, &texture_creator);
     let mut last_snapshot_time = Instant::now();
-    let mut info_scroll_pos: i32 = 0;
+    let mut info_scroll_pos: f32 = 0.;
     const INFO_SPACING: i32 = 50;
 
     let mut current_view = View::Miniplayer;
@@ -374,11 +406,9 @@ fn main() {
     // reset when the mouse button is released
     let mut window_interaction_in_progress = false;
 
-
     // RENDERING LOOP ==================================================================================================
 
     'running: loop {
-
         // INPUT EVENTS ------------------------------------------------------------------------------------------------
 
         // Mouse state
@@ -463,8 +493,8 @@ fn main() {
 
                             // Set the dragged item's state to animate
                             u_dragged_item.state = ItemState::Anim {
-                                duration: 15,
-                                current: 0,
+                                duration: 0.5,
+                                current: 0.,
                                 x_curve: Box::new(move |t: f32| x + t * (QUEUE_BUTTON_X - x)),
                                 y_curve: Box::new(move |t: f32| {
                                     scale_y * (t - vertex_t).powi(2) + ANIM_ARC_HEIGHT
@@ -474,7 +504,7 @@ fn main() {
                             queueing_albums.push(u_dragged_item);
 
                             // Freeze the next item in the third row until the animation finishes
-                            album_view_rows[2][2].state = ItemState::Freeze { timer: 25 };
+                            album_view_rows[2][2].state = ItemState::Freeze { timer: 0.8 };
                             continue;
                         }
                         u_dragged_item.state = ItemState::Default;
@@ -533,7 +563,7 @@ fn main() {
                                                 + ARTWORK_SIZE as f32,
                                             x_vel: 0.0,
                                             state: ItemState::Freeze {
-                                                timer: i as u32 % 3 * 3 + i as u32 / 3,
+                                                timer: (i % 3 * 3 + i / 3) as f32 * 0.03,
                                             },
                                         })
                                     } else {
@@ -618,9 +648,7 @@ fn main() {
         }
 
         match current_view {
-
             // DRAWING (ALBUM SELECT) ----------------------------------------------------------------------------------
-
             View::AlbumSelect => {
                 // ALBUM THUMBNAILS ------------------------------------------------------------------------------------
 
@@ -638,7 +666,8 @@ fn main() {
                         let drag_placeholder_x = drag_placeholder_loc
                             .filter(|loc| loc[1] == row_y)
                             .map(|loc| loc[0]);
-                        let target_x = AlbumViewItem::get_target_pos(item_x, drag_placeholder_x) as f32;
+                        let target_x =
+                            AlbumViewItem::get_target_pos(item_x, drag_placeholder_x) as f32;
                         item.update(target_x);
 
                         let thumbnail_rect = Rect::new(
@@ -655,13 +684,13 @@ fn main() {
 
                 // Draw the item that is currently being dragged, if there is one
                 if let Some(u_dragged_item) = dragged_item.as_ref() {
-                    const DRAG_SPEED_MULTIPLIER: f32 = 0.6;
+                    const DRAG_SPEED_MULTIPLIER: f32 = 18.;
 
                     let target_pos = mouse_state.pos()
                         - Point::new(
-                        THUMBNAIL_SIZE_DRAG as i32 / 2,
-                        THUMBNAIL_SIZE_DRAG as i32 / 2,
-                    );
+                            THUMBNAIL_SIZE_DRAG as i32 / 2,
+                            THUMBNAIL_SIZE_DRAG as i32 / 2,
+                        );
                     let direction = [
                         target_pos.x() as f32 - dragged_item_pos[0],
                         target_pos.y() as f32 - dragged_item_pos[1],
@@ -672,8 +701,8 @@ fn main() {
                     ];
 
                     dragged_item_pos = [
-                        dragged_item_pos[0] + velocity[0],
-                        dragged_item_pos[1] + velocity[1],
+                        dragged_item_pos[0] + velocity[0] * DT,
+                        dragged_item_pos[1] + velocity[1] * DT,
                     ];
                     let dragged_item_rect = Rect::new(
                         dragged_item_pos[0] as i32,
@@ -681,9 +710,14 @@ fn main() {
                         THUMBNAIL_SIZE_DRAG,
                         THUMBNAIL_SIZE_DRAG,
                     );
-                    canvas
-                        .copy(u_dragged_item.album.artwork(), None, dragged_item_rect)
-                        .unwrap();
+                    canvas.draw_shadowed(
+                        &u_dragged_item.album.artwork(),
+                        None,
+                        dragged_item_rect,
+                        &shadow,
+                        SHADOW_OFFSET,
+                        SHADOW_RADIUS,
+                    );
                 } else if window_input_focus && window_rect.contains_point(mouse_state.pos()) {
                     // Enlarge the album artwork that the user is hovering over
                     let target_row = album_view_rows.get_mut(hovered_album_loc[1]);
@@ -697,12 +731,39 @@ fn main() {
                                 THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMT_HOVER,
                                 THUMBNAIL_SIZE + THUMBNAIL_SCALE_AMT_HOVER,
                             );
-                            canvas
-                                .copy(item.album.artwork(), None, thumbnail_rect)
-                                .unwrap();
+                            canvas.draw_shadowed(
+                                &item.album.artwork(),
+                                None,
+                                thumbnail_rect,
+                                &shadow,
+                                SHADOW_OFFSET,
+                                SHADOW_RADIUS,
+                            );
                         }
                     }
                 }
+
+                // GRADIENTS -------------------------------------------------------------------------------------------
+
+                // enable the top gradient when we pass a threshold
+                let enable_top_gradient = mouse_state.y() <= ENABLE_TOP_GRADIENT_THRESHOLD && mouse_state.y() >= 0;
+                // enable the bottom gradient when we're hovering the queue button
+                let enable_bottom_gradient = 
+                    mouse_state.y() >= ENABLE_BOTTOM_GRADIENT_THRESHOLD && mouse_state.y() <= ARTWORK_SIZE as i32 && 
+                    mouse_state.x() >= ENABLE_BOTTOM_GRADIENT_THRESHOLD && mouse_state.x() <= ARTWORK_SIZE as i32;
+
+                let top_alpha_delta = if enable_top_gradient { GRADIENT_MAX_ALPHA } else { 0 } as i16
+                    - top_gradient_alpha as i16;
+                top_gradient_alpha = (top_gradient_alpha as f32 + top_alpha_delta as f32 * GRADIENT_ALPHA_SPEED * DT) as u8;
+
+                let bottom_alpha_delta = if enable_bottom_gradient { GRADIENT_MAX_ALPHA } else { 0 } as i16
+                    - bottom_gradient_alpha as i16;
+                bottom_gradient_alpha = (bottom_gradient_alpha as f32 + bottom_alpha_delta as f32 * GRADIENT_ALPHA_SPEED * DT) as u8;
+
+                gradient.set_alpha_mod(top_gradient_alpha);
+                canvas.copy(&gradient, None, top_gradient_rect).unwrap();
+                gradient.set_alpha_mod(bottom_gradient_alpha);
+                canvas.copy_ex(&gradient, None, bottom_gradient_rect, 0., None, false, true).unwrap();
 
                 // QUEUE BUTTON ----------------------------------------------------------------------------------------
 
@@ -782,7 +843,6 @@ fn main() {
             }
 
             // DRAWING (MINIPLAYER) ------------------------------------------------------------------------------------
-
             View::Miniplayer => {
                 // Draw the album art
                 let art_tex = now_playing_resources.track_resources.artwork_texture();
@@ -807,10 +867,11 @@ fn main() {
 
                     let percent_elapsed = (now_playing_resources.player_info.pos()
                         + if now_playing_resources.player_info.state() == PlayerState::Playing {
-                        last_snapshot_time.elapsed().as_secs_f64()
-                    } else {
-                        0.
-                    }) / now_playing_resources.track_info.length();
+                            last_snapshot_time.elapsed().as_secs_f64()
+                        } else {
+                            0.
+                        })
+                        / now_playing_resources.track_info.length();
 
                     canvas
                         .draw_line(
@@ -851,23 +912,25 @@ fn main() {
         let info_qry = info_tex.query();
 
         if now_playing_resources.player_info.state() == PlayerState::Playing {
-            info_scroll_pos -= 1;
-            info_scroll_pos %= info_qry.width as i32 + INFO_SPACING;
+            info_scroll_pos -= DT * 30.;
+            info_scroll_pos %= (info_qry.width as i32 + INFO_SPACING) as f32;
         }
 
         //Draw the info text, once normally and once shifted to the right for seamless looping
         engine::copy_unscaled(
             &info_tex,
-            info_scroll_pos,
+            info_scroll_pos as i32,
             (ARTWORK_SIZE + INFO_PADDING) as i32,
             &mut canvas,
-        ).unwrap();
+        )
+        .unwrap();
         engine::copy_unscaled(
             &info_tex,
-            info_scroll_pos + info_qry.width as i32 + INFO_SPACING,
+            info_scroll_pos as i32 + info_qry.width as i32 + INFO_SPACING,
             (ARTWORK_SIZE + INFO_PADDING) as i32,
             &mut canvas,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Draw each button and add its rect to the 'sub' vec if it's active, then deactivate every button
         sub.clear();
@@ -916,6 +979,6 @@ fn main() {
 
         //Present the canvas
         canvas.present();
-        thread::sleep(Duration::from_nanos(1_000_000_000u64 / 30));
+        thread::sleep(Duration::from_nanos(1_000_000_000u64 / FRAMES_PER_SECOND));
     }
 }

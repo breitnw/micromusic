@@ -106,8 +106,12 @@ pub fn update_canvas_scale<T: RenderTarget>(
     window_height: u32,
 ) {
     let (w, h) = canvas.output_size().unwrap();
+
+    let horiz_scale = w / window_width;
+    let vert_scale = h / window_height;
+
     canvas
-        .set_scale((w / window_width) as f32, (h / window_height) as f32)
+        .set_scale(horiz_scale as f32, vert_scale as f32)
         .unwrap();
 }
 
@@ -166,18 +170,54 @@ pub fn raw_to_texture<'a, 'b, T>(
     raw_data: &'a str, 
     texture_creator: &'b TextureCreator<T>, 
 ) -> std::result::Result<Texture<'b>, hex::FromHexError> {
-    // Use linear filtering when creating the texture
-    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best");
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best"); // linear filtering
 
     // Load the raw bytes
     let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
-
     // Load the texture
     let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
 
-    // Reset filtering to nearest
-    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest");
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest"); // point filtering
 
     Ok(artwork_texture)
 }
 
+// Shadows
+pub trait DrawShadowed {
+    fn draw_shadowed<R>(
+        &mut self, 
+        texture: &Texture, 
+        src: R,
+        dst: Rect,
+        shadow_texture: &Texture,
+        shadow_offset: i32, 
+        shadow_radius: u32,
+    ) where
+        R: Into<Option<Rect>>;
+}
+
+impl<T: RenderTarget> DrawShadowed for Canvas<T> {
+    fn draw_shadowed<R>(
+        &mut self, 
+        texture: &Texture, 
+        src: R,
+        dst: Rect,
+        shadow_texture: &Texture,
+        shadow_offset: i32, 
+        shadow_radius: u32,
+    ) where R: Into<Option<Rect>> {
+        let shadow_width: u32 = dst.width() + shadow_radius;
+        let shadow_height: u32 = dst.height() + shadow_radius;
+
+        let shadow_rect = Rect::new(
+            dst.x() + (dst.width() - shadow_width) as i32 / 2 + shadow_offset,
+            dst.y() + (dst.height() - shadow_height) as i32 / 2 + shadow_offset,
+            shadow_width,
+            shadow_height,
+        );
+
+        self.copy(shadow_texture, None, shadow_rect).unwrap();
+        self.copy(texture, src, dst).unwrap();
+    }
+
+}

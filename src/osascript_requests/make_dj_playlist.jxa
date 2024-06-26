@@ -3,6 +3,8 @@ var app = Application('Music');
 
 const playlistName = "micromusic DJ"
 
+if (app.currentPlaylist !== null && app.currentPlaylist.name() === playlistName) { return }
+
 while (app.playlists[playlistName].exists()) {
     app.playlists[playlistName].delete()
 }

@@ -13,8 +13,7 @@ type PlayerDataSender = Sender<Option<PDOsascriptResponse>>;
 /// Returns information on the state of the music player
 fn get_player_data() -> Option<PDOsascriptResponse> {
     // TODO: make it so that this is toggled based on OS
-    const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data_sonoma.jxa");
-    // const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data.jxa");
+    const PLAYER_DATA_SCRIPT: &'static str = include_str!("osascript_requests/get_player_data.jxa");
     let script = osascript::JavaScript::new(PLAYER_DATA_SCRIPT);
     script.execute().ok()
 }
@@ -86,8 +85,8 @@ impl JXACommand {
             JXACommand::BackTrack => "Application('Music').backTrack()",
             // JXACommand::Love => "Application('Music').currentTrack.loved = true",
             // JXACommand::Unlove => "Application('Music').currentTrack.loved = false",
-            JXACommand::Love => "Application('Music').currentTrack.favorited = true", // TODO: Toggle for sonoma
-            JXACommand::Unlove => "Application('Music').currentTrack.favorited = false",
+            JXACommand::Love => "try { Application('Music').currentTrack.loved = true } catch { Application('Music').currentTrack.favorited = true }", 
+            JXACommand::Unlove => "try { Application('Music').currentTrack.loved = false } catch { Application('Music').currentTrack.favorited = false }", 
         }
     }
 }
@@ -149,15 +148,6 @@ pub fn make_dj_playlist() {
     const MAKE_DJ_PLAYLIST_SCRIPT: &'static str =
         include_str!("osascript_requests/make_dj_playlist.jxa");
     let script = osascript::JavaScript::new(MAKE_DJ_PLAYLIST_SCRIPT);
-    thread::spawn(move || {
-        let _: () = script.execute().unwrap();
-    });
-}
-
-pub fn remove_dj_playlist() {
-    const REMOVE_DJ_PLAYLIST_SCRIPT: &'static str =
-        include_str!("osascript_requests/remove_dj_playlist.jxa");
-    let script = osascript::JavaScript::new(REMOVE_DJ_PLAYLIST_SCRIPT);
     thread::spawn(move || {
         let _: () = script.execute().unwrap();
     });
