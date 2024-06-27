@@ -746,7 +746,8 @@ fn main() {
                 // GRADIENTS -------------------------------------------------------------------------------------------
 
                 // enable the top gradient when we pass a threshold
-                let enable_top_gradient = mouse_state.y() <= ENABLE_TOP_GRADIENT_THRESHOLD && mouse_state.y() >= 0;
+                let enable_top_gradient = mouse_state.y() <= ENABLE_TOP_GRADIENT_THRESHOLD && mouse_state.y() >= 0
+                    && mouse_state.x() >= 0 && mouse_state.x() <= WINDOW_WIDTH as i32;
                 // enable the bottom gradient when we're hovering the queue button
                 let enable_bottom_gradient = 
                     mouse_state.y() >= ENABLE_BOTTOM_GRADIENT_THRESHOLD && mouse_state.y() <= ARTWORK_SIZE as i32 && 
