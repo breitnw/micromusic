@@ -42,11 +42,17 @@ fn get_player_data(client: &mut Client, mut last_player_data: Option<PDOsascript
 
     println!("Getting track info");
     let song = client.currentsong().ok()??; // HACK bad bad bad wth
+    let loved = client
+        .stickers_map("song", &song.file)
+        .unwrap()
+        .get("favorited")
+        .map(|v| v == "★")
+        .unwrap_or(false);
     let track_info = TrackInfo {
         name: song.title.clone().unwrap_or("No title".to_string()),
         artist: song.artist.clone().unwrap_or("No artist".to_string()),
         album: song.get_album().map(String::to_owned).unwrap_or("No album".to_string()),
-        loved: false, // HACK
+        loved,
         length: song.duration.unwrap().as_secs_f64(), // if theres not a duration, oops
     };
     println!("Getting status");
@@ -183,8 +189,16 @@ where
             JXACommand::NextTrack => { lock.next().unwrap(); }
             JXACommand::PreviousTrack => { lock.prev().unwrap(); }
             JXACommand::BackTrack => { lock.prev().unwrap(); } // HACK
-            JXACommand::Love => { todo!() }
-            JXACommand::Unlove => { todo!() }
+            JXACommand::Love => {
+                if let Ok(Some(song)) = lock.currentsong() {
+                    lock.set_sticker("song", &song.file, "favorited", "★").unwrap();
+                }
+            }
+            JXACommand::Unlove => {
+                if let Ok(Some(song)) = lock.currentsong() {
+                    lock.set_sticker("song", &song.file, "favorited", " ").unwrap();
+                }
+            }
         }
         if let Some(tx) = tx {
             send_player_data_async(client.clone(), tx);
