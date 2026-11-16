@@ -179,7 +179,6 @@ where
                     PlayerState::Stopped => lock.play(),
                     _ => todo!()
                 }.unwrap();
-                lock.play().unwrap();
             }
             JXACommand::NextTrack => { lock.next().unwrap(); }
             JXACommand::PreviousTrack => { lock.prev().unwrap(); }
