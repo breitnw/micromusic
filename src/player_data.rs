@@ -6,11 +6,11 @@ use sdl2::render::TextureCreator;
 use sdl2::video::WindowContext;
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct PDOsascriptResponse {
     pub track_info: TrackInfo,
     pub player_info: PlayerInfo,
-    pub track_artwork_data: String,
+    pub track_artwork_data: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq)]
@@ -23,13 +23,13 @@ pub enum PlayerState {
 }
 
 /// Information about a track, including name, artist, album, loved, and length.
-#[derive(Deserialize, PartialEq)]
+#[derive(Deserialize, PartialEq, Clone)]
 pub struct TrackInfo {
-    name: String,
-    artist: String,
-    album: String,
-    loved: bool,
-    length: f64,
+    pub name: String,
+    pub artist: String,
+    pub album: String,
+    pub loved: bool,
+    pub length: f64,
 }
 impl TrackInfo {
     pub fn name(&self) -> &str {
@@ -52,9 +52,9 @@ impl TrackInfo {
 /// Information about the player itself, including the player position (time elapsed in current song) and state.
 #[derive(Deserialize, Copy, Clone)]
 pub struct PlayerInfo {
-    pos: f64,
-    dj_active: bool,
-    state: PlayerState,
+    pub pos: f64,
+    pub dj_active: bool,
+    pub state: PlayerState,
 }
 impl PlayerInfo {
     pub fn dj_active(&self) -> bool { return self.dj_active; }

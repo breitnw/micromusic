@@ -18,7 +18,7 @@
       overlays = [(import rust-overlay)];
       pkgs = import nixpkgs {inherit system overlays;};
       rust-with-exts = (pkgs.rust-bin.stable.latest.default.override {
-        extensions = ["rust-src" "cargo" "rustc" ];
+        extensions = ["rust-src" "cargo" "rustc" "rust-analyzer" "rustfmt" "clippy" ];
       });
     in {
       devShells.default = with pkgs;
@@ -28,9 +28,6 @@
             clang
             glib
             rust-with-exts
-            rust-analyzer
-            rustfmt
-            clippy
 
             # libs
             SDL2

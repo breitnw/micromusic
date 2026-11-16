@@ -22,8 +22,11 @@ data-encoding = "2.3.2"
 regex = "1.7.0"
 rand = "0.8.5"
 queues = "1.1.0"
+mpd = "0.1.0"
+anyhow = "1.0.102"
+log = "0.4.30"
 
 [dependencies.sdl2]
-version = "0.34.5"
+version = "0.34.5" # can't be updated because of unifont
 default-features = false
 features = ["image"]

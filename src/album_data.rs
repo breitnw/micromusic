@@ -1,5 +1,6 @@
 use data_encoding::BASE64URL_NOPAD;
 use directories::ProjectDirs;
+use mpd::Client;
 use sdl2::{
     image::LoadTexture,
     render::{Texture, TextureCreator},
@@ -14,7 +15,7 @@ pub struct ADOsascriptResponse {
     // pub tracks: Vec<String>,
     pub album: String,
     pub album_artist: String,
-    pub artwork_data: Option<String>,
+    pub artwork_data: Option<Vec<u8>>,
 }
 
 /// A set of resources for displaying information about albums.
@@ -79,7 +80,7 @@ impl BaseAlbumResources {
 
         let artwork = texture_creator
             .load_texture(&self.artwork_file_path)
-            .unwrap(); // Should never panic
+            .unwrap(); // Should never panic WRONGGGG
 
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "nearest"); // point filtering
 
@@ -89,12 +90,13 @@ impl BaseAlbumResources {
         }
     }
 
-    pub fn get_all_from_music(artwork_size: u32) -> Vec<Self> {
+    pub fn get_all_from_music(client: &mut Client, artwork_size: u32) -> Vec<Self> {
         // Create the cache directory at ~/Library/Caches/com.breitnw.micromusic/artwork/
         let project_dirs = ProjectDirs::from("com", "breitnw", "micromusic")
             .expect("Unable to get path to cache directory.");
         let cache_dir: &Path = &project_dirs.cache_dir();
         let artwork_cache_dir: &Path = &cache_dir.join("artwork");
+        println!("{}", artwork_cache_dir.to_string_lossy());
         std::fs::create_dir_all(artwork_cache_dir).expect("Unable to create cache directory.");
 
         println!("Getting a list of cached albums...");
@@ -108,7 +110,7 @@ impl BaseAlbumResources {
             .collect();
 
         println!("Getting raw data from Apple Music...");
-        let mut album_data = osascript_requests::get_album_data(album_cache);
+        let mut album_data = osascript_requests::get_album_data(client, album_cache);
 
         println!("Removing duplicate albums...");
         album_data.sort_by(|a, b| {

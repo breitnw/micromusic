@@ -151,9 +151,10 @@ pub fn copy_unscaled<T: RenderTarget>(
     Ok(())
 }
 
-pub fn raw_to_cached_image<'a>(raw_data: &str, size: (u32, u32), cache_path: &str) -> std::result::Result<(), hex::FromHexError> {
+pub fn raw_to_cached_image<'a>(raw_data: &Vec<u8>, size: (u32, u32), cache_path: &str) -> std::result::Result<(), hex::FromHexError> {
     // Load the raw bytes
-    let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+    // let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+    let bytes = raw_data;
 
     // If the caller specified a target image size, resize the image to that size
     let image = image::load_from_memory(&bytes)
@@ -167,13 +168,14 @@ pub fn raw_to_cached_image<'a>(raw_data: &str, size: (u32, u32), cache_path: &st
 } 
 
 pub fn raw_to_texture<'a, 'b, T>(
-    raw_data: &'a str, 
+    raw_data: &'a Vec<u8>, 
     texture_creator: &'b TextureCreator<T>, 
 ) -> std::result::Result<Texture<'b>, hex::FromHexError> {
     sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best"); // linear filtering
 
     // Load the raw bytes
-    let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+    // let bytes = Vec::from_hex(&raw_data[8..raw_data.len() - 2])?;
+    let bytes = raw_data;
     // Load the texture
     let artwork_texture = texture_creator.load_texture_bytes(&bytes).unwrap();
 
@@ -210,8 +212,8 @@ impl<T: RenderTarget> DrawShadowed for Canvas<T> {
         let shadow_height: u32 = dst.height() + shadow_radius;
 
         let shadow_rect = Rect::new(
-            dst.x() + (dst.width() - shadow_width) as i32 / 2 + shadow_offset,
-            dst.y() + (dst.height() - shadow_height) as i32 / 2 + shadow_offset,
+            dst.x() + (dst.width() as i32 - shadow_width as i32) / 2 + shadow_offset,
+            dst.y() + (dst.height() as i32 - shadow_height as i32) / 2 + shadow_offset,
             shadow_width,
             shadow_height,
         );

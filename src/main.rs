@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -72,8 +72,10 @@ fn main() {
     // Set up a MPSC channel to send player data between threads
     let (player_tx, player_rx) = mpsc::channel();
 
+    let client = Arc::new(Mutex::new(mpd::Client::connect("localhost:6600").unwrap()));
+
     // Spawn a secondary thread to periodically gather information on the current track and send it to the main thread
-    osascript_requests::send_player_data_loop(player_tx.clone());
+    osascript_requests::send_player_data_loop(client.clone(), player_tx.clone());
     osascript_requests::make_dj_playlist();
     osascript_requests::clear_played_tracks_loop();
 
@@ -84,10 +86,14 @@ fn main() {
 
     // Spawn a thread to get all album resources from Apple Music
     let (album_tx, album_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let base_album_resources = BaseAlbumResources::get_all_from_music(ARTWORK_SIZE * 2 / 3);
-        album_tx.send(base_album_resources).unwrap();
-    });
+    {
+        let resources_client = client.clone();
+        thread::spawn(move || {
+            let mut lock = resources_client.lock().unwrap();
+            let base_album_resources = BaseAlbumResources::get_all_from_music(&mut lock, ARTWORK_SIZE * 2 / 3);
+            album_tx.send(base_album_resources).unwrap();
+        });
+    }
 
     // CONSTANTS =======================================================================================================
 
@@ -522,25 +528,33 @@ fn main() {
                     match Button::get_hovered_from_hash(&buttons, x, y) {
                         Some(button_name) => match button_name {
                             "heart_empty" => {
-                                osascript_requests::run_command(JXACommand::Love, player_tx.clone())
+                                osascript_requests::run_command(client.clone(), JXACommand::Love, player_tx.clone(), now_playing_resources.player_info.state)
                             }
                             "heart_filled" => osascript_requests::run_command(
+                                client.clone(), 
                                 JXACommand::Unlove,
                                 player_tx.clone(),
+                                now_playing_resources.player_info.state
                             ),
                             "album_view" => current_view = View::AlbumSelect,
                             "miniplayer_view" => current_view = View::Miniplayer,
                             "play" | "pause" => osascript_requests::run_command(
+                                client.clone(),
                                 JXACommand::PlayPause,
                                 player_tx.clone(),
+                                now_playing_resources.player_info.state
                             ),
                             "back_track" => osascript_requests::run_command(
+                                client.clone(),
                                 JXACommand::BackTrack,
                                 player_tx.clone(),
+                                now_playing_resources.player_info.state
                             ),
                             "next_track" => osascript_requests::run_command(
+                                client.clone(),
                                 JXACommand::NextTrack,
                                 player_tx.clone(),
+                                now_playing_resources.player_info.state
                             ),
                             "minimize" => {
                                 // TODO: temporary border enabling hack no longer necessary in Ventura, remove?
@@ -794,6 +808,8 @@ fn main() {
                         queue_button_squash_frame = 2;
                         let album = queueing_albums.remove(i).album;
                         osascript_requests::queue_album(
+                            client.clone(),
+                            player_tx.clone(),
                             album.title().to_string(),
                             album.album_artist().to_string(),
                         );
