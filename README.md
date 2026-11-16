@@ -14,3 +14,7 @@ This application has only been tested with Apple Music on MacOS Monterey, MacOS 
 If you want to compile from source, you'll first need to install the SDL2 headers. One way to do this is with `brew install sdl2`, and then change the variable `include_path` in `build.rs` to the include path used by Homebrew (on M1 devices, this should be `/opt/homebrew/include`). You'll also need to add Homebrew's library installation directory (`/opt/homebrew/lib` on M1 devices) to your library search path, which can generally be done via the `LIBRARY_PATH` environment variable. 
 
 To build the application, you first need to run the `build_xcode.sh` script. This will move the binary into the Xcode folder, bundle its `.dylib` dependencies, and correct the binary to point to these bundled dependencies. From there, you should be able to use Xcode to build the application with all required libraries.
+
+### Bonus: usage with MPD
+
+For MPD users, micromusic has _very_ basic functionality implemented in the `mpd` branch. Due to unprecedented volumes of spaghetti code I produced in high school, this is very difficult to merge into the main branch, though I hope to eventually! For now, you can build from the `mpd` branch after setting the proper host/port (currently hardcoded as `localhost:6600`)
